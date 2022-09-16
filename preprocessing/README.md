@@ -1,0 +1,1 @@
+In this directory all preprocessing scripts are provided which transform the MIMIC-III (after concept extraction with MIMIC-CODE) and AmsterdamUMCdb into the respective datasets used to train the RL agents.
