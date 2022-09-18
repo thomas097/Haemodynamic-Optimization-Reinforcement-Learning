@@ -4,7 +4,7 @@ import numpy as np
 from toy_data import discrete_pendulum
 
 
-class OrderedExpReplay:
+class OrderedExperienceReplay:
     """ Implements an ordered Experience Replay (PER) buffer which
         replays experience in the order they occurred.
     """
@@ -18,7 +18,7 @@ class OrderedExpReplay:
 
         self._return_history = return_history
 
-    def sample(self, N): # unused
+    def sample(self, N=None):
         # Determine next episode
         if self._current_episode == self._episodes[-1]:
             self._current_episode = self._episodes[0]
@@ -46,7 +46,7 @@ class OrderedExpReplay:
         return [(i, 1.0, self._df.loc[i:i + 1]) for i in trans_indices]
 
 
-class PriorExpReplay:
+class PrioritizedExperienceReplay:
     """ Implements the Prioritized Experience Replay (PER) buffer
         (Schaul et al., 2016) for off-policy RL training from log-data.
         See: https://arxiv.org/pdf/1511.05952v3.pdf
@@ -67,7 +67,7 @@ class PriorExpReplay:
         self._return_history = return_history
 
     def _non_terminal_indices(self, df):
-        # Extract indices of non-terminal states
+        # Extract indices of all non-terminal states
         indices = []
         for _, episode in df.groupby(self._episode_col):
             indices += list(episode['index'].values[:-1])  # [:-1] Ensures terminal states cannot be sampled
@@ -78,13 +78,13 @@ class PriorExpReplay:
         return z / np.sum(z)
 
     def _importance_weights(self, chosen_indices, selection_probs):
-        N = self._buffer_size
-        idx = [np.where(self._indices == i)[0][0] for i in chosen_indices]
-        w = (N * selection_probs[idx]) ** -self._beta0
+        idx = [np.where(self._indices == i)[0][0] for i in chosen_indices] # Indices in full index
+        w = (self._buffer_size * selection_probs[idx]) ** -self._beta0
         return w / np.max(w)
 
-    def update(self, indices, td_errors):
-        self._TD_errors[indices] = np.absolute(td_errors)
+    def update(self, index, td_error):
+        index = np.where(self._indices == index)[0][0]  # Indices in full index
+        self._TD_errors[index] = np.absolute(td_error)
 
     def sample(self, N):
         # Stochastically sampling of transitions (indices) from replay buffer
