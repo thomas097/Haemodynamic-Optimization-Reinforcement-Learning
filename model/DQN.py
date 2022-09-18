@@ -71,7 +71,7 @@ def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, e
                 q_prev = model(state)[action]
 
                 # Updated Q(s, a)_new = R + gamma * imp_weight * Q(s', argmax_a[Q'(s', a)])
-                q_new = reward + gamma * w * target(next_state)[torch.argmax(model(next_state))]
+                q_new = reward + gamma * target(next_state)[torch.argmax(model(next_state))]
 
                 # Compute squared TD-error
                 loss = mse_loss(q_prev, q_new)
