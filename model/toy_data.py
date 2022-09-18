@@ -3,13 +3,13 @@ import numpy as np
 import pandas as pd
 
 
-def cartpole(model=None, num_episodes=100, max_timesteps=1000):
-    """ Runs a model on the CartPole-v1 gym environment or generates
+def discrete_pendulum(model=None, num_episodes=50, max_timesteps=1000):
+    """ Runs a model on the Pendulum-v1 gym environment or generates
         off-policy samples to train model on (when model=None). In case
         no model is provided, a uniform random behavior policy is used.
         This function is primarily meant as a benchmark for development.
     """
-    env = gym.make("CartPole-v1")
+    env = gym.make("Pendulum-v0")
 
     histories = []
 
@@ -22,20 +22,16 @@ def cartpole(model=None, num_episodes=100, max_timesteps=1000):
             if model is not None:
                 action = model.sample(state)
             else:
-                action = env.action_space.sample()
+                action = round(env.action_space.sample()[0]) + 2  # ~ [0, 4]
 
-            next_state, reward, terminated, info = env.step(action)
+            next_state, reward, terminated, info = env.step([action - 2])
             total_reward += reward
 
             episode.append(ep)
             timestep.append(ts)
             states.append(state)
             actions.append(action)
-
-            if terminated:
-                rewards.append(-100)  # Negative reward is never given?
-            else:
-                rewards.append(reward)
+            rewards.append(reward)
 
             if terminated:
                 episode.append(ep)
@@ -51,6 +47,7 @@ def cartpole(model=None, num_episodes=100, max_timesteps=1000):
                           'timestep': timestep,
                           'state_0': [s[0] for s in states],
                           'state_1': [s[1] for s in states],
+                          'state_2': [s[2] for s in states],
                           'action': actions,
                           'reward': rewards})
 
@@ -66,5 +63,5 @@ def cartpole(model=None, num_episodes=100, max_timesteps=1000):
 
 
 if __name__ == '__main__':
-    df = cartpole()
+    df = discrete_pendulum()
     print(df[df['episode'] == 0])

@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from toy_data import cartpole
+from toy_data import discrete_pendulum
 
 
 class OrderedExpReplay:
@@ -112,7 +112,7 @@ class PriorExpReplay:
 
 
 if __name__ == '__main__':
-    replay_buffer = PriorExpReplay(cartpole(num_episodes=2), return_history=True)
+    replay_buffer = PriorExpReplay(discrete_pendulum(num_episodes=2), return_history=True)
 
     for i, w, transition in replay_buffer.sample(N=10):
         print('Index: ', i)

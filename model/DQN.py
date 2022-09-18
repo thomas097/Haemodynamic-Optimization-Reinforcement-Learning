@@ -4,7 +4,7 @@ from torch import nn, optim
 from tqdm import tqdm
 
 from ExperienceReplay import PriorExpReplay, OrderedExpReplay
-from toy_data import cartpole
+from toy_data import discrete_pendulum
 
 
 class DuelingDQN(nn.Module):
@@ -20,10 +20,10 @@ class DuelingDQN(nn.Module):
         for i in range(len(shape) - 2):
             layers.append(nn.Linear(shape[i], shape[i + 1]))
             layers.append(nn.Sigmoid())
-        self.__base = nn.Sequential(*layers)
+        self._base = nn.Sequential(*layers)
 
-        self.__V = nn.Linear(shape[-2], 1)
-        self.__A = nn.Linear(shape[-2], shape[-1])
+        self._V = nn.Linear(shape[-2], 1)
+        self._A = nn.Linear(shape[-2], shape[-1])
 
     def copy_weights(self, other):
         for param, param_value in zip(self.parameters(), other.parameters()):
@@ -31,9 +31,9 @@ class DuelingDQN(nn.Module):
         return self
 
     def forward(self, x):
-        h = self.__base(x)
-        v = self.__V(h)
-        a = self.__A(h)
+        h = self._base(x)
+        v = self._V(h)
+        a = self._A(h)
         return v + (a - a.mean())
 
 
@@ -44,25 +44,18 @@ def fit_DuelingDQN(actor,
                    reward_col='reward',
                    episode_col='episode',
                    timestep_col='timestep',
-                   alpha=1e-2,
-                   gamma=0.9,
+                   alpha=1e-4,
+                   gamma=0.99,
                    tau=1e-2,
-                   passes=2,
+                   passes=10,
                    replay_size=18,
                    replay_alpha=0.6,
                    replay_beta0=0.4):
 
         print('Loading DataFrame into replay buffer')
-        # replay_buffer = PriorExpReplay(dataset=dataset,
-        #                                episode_col=episode_col,
-        #                                timestep_col=timestep_col,
-        #                                alpha=replay_alpha,
-        #                                beta0=replay_beta0,
-        #                                return_history=False)
-
         replay_buffer = OrderedExpReplay(dataset, episode_col, timestep_col)
 
-        criterion = nn.MSELoss()
+        mse_loss = nn.MSELoss()
         optimizer = optim.Adam(actor.parameters(), lr=alpha)
 
         # Create target network
@@ -73,10 +66,12 @@ def fit_DuelingDQN(actor,
 
         for pass_ in range(passes):
             total_loss = 0
+            total_steps = 0
 
-            for ep in range(num_episodes):
+            for _ in tqdm(range(num_episodes)):
+
                 for i, w, tr in replay_buffer.sample(N=replay_size):
-                    # Unpack transition
+                    # Unpack transition as (s, a, r, s')
                     state, next_state = torch.Tensor(tr[state_cols].values)
                     action = torch.LongTensor(tr[action_col].values)[0]
                     reward = torch.Tensor(tr[reward_col].values)[0]
@@ -88,32 +83,34 @@ def fit_DuelingDQN(actor,
                     q_new = q_prev.clone()
                     q_new[action] = reward + gamma * target(next_state)[torch.argmax(actor(next_state))]
 
-                    # Update actor
-                    loss = criterion(q_prev, q_new)
+                    # Compute loss
+                    loss = mse_loss(q_prev, q_new)
                     total_loss += loss.item()
+                    total_steps += 1
 
+                    # Update actor
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
 
-                    # Update target
-                    for target_p, actor_p in zip(target.parameters(), actor.parameters()):
-                        target_p.data.copy_(actor_p.data * tau + target_p.data * (1.0 - tau))
+                    # Update target (parameterized by theta1)
+                    for theta1, theta0 in zip(target.parameters(), actor.parameters()):
+                        theta1.data.copy_(theta0.data * tau + theta1.data * (1.0 - tau))
 
-            print('Pass %s: MSE = %s' % (pass_, total_loss))
+            print('Pass %s: Avg. Sqr. TD-error = %s\n' % (pass_, total_loss / total_steps))
 
 
 if __name__ == '__main__':
-    STATE_COLS = ['state_0', 'state_1']
+    STATE_COLS = ['state_0', 'state_1', 'state_2']
     ACTION_COL = 'action'
     REWARD_COL = 'reward'
-    HIDDEN_DIMS = (32, 32,)
+    HIDDEN_DIMS = (12, 12,)
 
     actor = DuelingDQN(state_dim=len(STATE_COLS),
-                       num_actions=2,
+                       num_actions=5,
                        hidden_dims=HIDDEN_DIMS)
 
-    dataset = cartpole(num_episodes=1000)
+    dataset = discrete_pendulum(num_episodes=50)
 
     fit_DuelingDQN(actor=actor, dataset=dataset, state_cols=STATE_COLS, action_col=ACTION_COL,
                    reward_col=REWARD_COL, episode_col='episode', timestep_col='timestep')
