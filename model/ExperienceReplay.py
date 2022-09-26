@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
 
-from toy_data import discrete_pendulum
-
 
 class OrderedExperienceReplay:
     """ Implements an ordered Experience Replay (PER) buffer which
@@ -78,7 +76,7 @@ class PrioritizedExperienceReplay:
         return z / np.sum(z)
 
     def _importance_weights(self, chosen_indices, selection_probs):
-        idx = [np.where(self._indices == i)[0][0] for i in chosen_indices] # Indices in full index
+        idx = [np.where(self._indices == i)[0][0] for i in chosen_indices]  # Indices in full index
         w = (self._buffer_size * selection_probs[idx]) ** -self._beta0
         return w / np.max(w)
 
@@ -112,7 +110,12 @@ class PrioritizedExperienceReplay:
 
 
 if __name__ == '__main__':
-    replay_buffer = PriorExpReplay(discrete_pendulum(num_episodes=2), return_history=True)
+    dataset = pd.DataFrame({'episode': np.repeat(np.arange(10), 10),
+                            'timestep': np.tile(np.arange(10), 10),
+                            'state': np.random.random(100),
+                            'action': np.random.random(100),
+                            'reward': np.random.random(100)})
+    replay_buffer = PrioritizedExperienceReplay(dataset, return_history=True)
 
     for i, w, transition in replay_buffer.sample(N=10):
         print('Index: ', i)
