@@ -93,26 +93,25 @@ def fit_dueling_double_REM(model, dataset, state_cols, action_col, reward_col, e
 
         avg_loss = 0.0
 
-        # Accumulate gradient over batch
         for i, wis, tr in replay_buffer.sample(N=batch_size):
             # Unpack transition tuple (s, a, r, s')
             state, next_state = torch.Tensor(tr[state_cols].values)
             action, _ = torch.LongTensor(tr[action_col].values)
             reward, _ = torch.Tensor(tr[reward_col].values)
 
-            # Sample weights from categorical distribution
+            # Sample weights for Q-function heads
             alphas = torch.rand(model.K)
             alphas = alphas / torch.sum(alphas)
 
-            # Bootstrap Q-target: Q_target = r + gamma * max_a'[alpha.dot(Q(s', a'))]
+            # Bootstrap Q-target
             with torch.no_grad():
                 q_next = target(next_state)
-                q_target = reward + gamma * max([torch.dot(alphas, q_next[:, a]) for a in range(q_next.shape[1])])
+                q_target = reward + gamma * torch.max(torch.matmul(alphas, q_next))
 
-            # Q estimate of model
+            # Q-estimate of model
             q_prev = torch.dot(alphas, model(state)[:, int(action)])
 
-            # Aggregate Huber loss over batch
+            # Aggregate loss
             loss = wis * huber_loss(q_prev, q_target) / batch_size
             avg_loss += loss.item()
             loss.backward()

@@ -13,7 +13,7 @@ class CartPoleModel:
         return 1 if state.dot(self._w) > 0 else 0
 
 
-def cartpole(model=None, num_episodes=10, max_steps=300, epsilon=0.1, render=False, seed=None):
+def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.1, render=False, seed=None):
     """ Runs a model on the CartPole-v1 gym environment or, when model=None, generates
         off-policy samples to train model on. In case no model is provided, an epsilon
         greedy behavior policy is used based on a learned 4-parameter model.
@@ -94,7 +94,7 @@ if __name__ == '__main__':
                            reward_col='reward',
                            episode_col='episode',
                            timestep_col='timestep',
-                           alpha=1e-4,
+                           alpha=1e-3,
                            gamma=0.9,
                            tau=1e-2,
                            num_episodes=4000,
