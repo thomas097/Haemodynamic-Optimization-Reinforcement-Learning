@@ -20,19 +20,18 @@ class DuelingREM(nn.Module):
 
         self._outputs = num_actions
         self._inputs = state_dim
-        shape = (state_dim,) + hidden_dims + (num_actions,)
+        self._shape = (state_dim,) + hidden_dims + (num_actions,)
 
         # Shared feature network
         layers = []
-        for i in range(len(shape) - 2):
-            layers.append(nn.Linear(shape[i], shape[i + 1]))
+        for i in range(len(self._shape) - 2):
+            layers.append(nn.Linear(self._shape[i], self._shape[i + 1]))
             layers.append(nn.ELU())
         self._base = nn.Sequential(*layers)
 
         # Value and Advantage nets
-        self._K = K
-        self._val_heads = nn.ModuleList([nn.Linear(shape[-2], 1) for _ in range(K)])
-        self._adv_heads = nn.ModuleList([nn.Linear(shape[-2], num_actions) for _ in range(K)])
+        self._val_heads = nn.ModuleList([nn.Linear(self._shape[-2], 1) for _ in range(K)])
+        self._adv_heads = nn.ModuleList([nn.Linear(self._shape[-2], num_actions) for _ in range(K)])
 
         # Xavier initialization
         self.apply(self._init_xavier_uniform)
@@ -43,28 +42,30 @@ class DuelingREM(nn.Module):
 
     @property
     def K(self):
-        return self._K
+        return len(self._val_heads)
 
     @staticmethod
     def _init_xavier_uniform(layer):
-        # Initialize weights and biases using Xavier initialization
         if isinstance(layer, nn.Linear):
             nn.init.xavier_uniform_(layer.weight)
             layer.bias.data.fill_(0.01)
 
     def sample(self, state):
-        # Returns action index with highest π(action|state)
+        state = torch.Tensor(state)
         with torch.no_grad():
-            output = self(torch.Tensor(state))
-            q_vals = torch.mean(output, dim=0, keepdim=True)  # Average outputs of heads
-            return torch.argmax(q_vals, dim=1)[0].detach().numpy()
+            q_values = torch.mean(self(state), dim=0)
+            action = torch.argmax(q_values)
+        return action.detach().numpy()
 
-    def forward(self, x):
-        h = self._base(x[None])
-        val = torch.concat([v(h) for v in self._val_heads], dim=0)
-        adv = torch.concat([a(h) for a in self._adv_heads], dim=0)
-        adv_minus_mean = (adv.t() - adv.mean(dim=1)).t()
-        return val.repeat(1, self._actions) + adv_minus_mean
+    def forward(self, state):  # -> state.shape = (state_dim,)
+        outputs = []
+        out = self._base(state[None])
+        for val_func, adv_func in zip(self._val_heads, self._adv_heads):
+            advantage = adv_func(out)
+            state_val = val_func(out)
+            q_values = state_val + (advantage - torch.mean(advantage))
+            outputs.append(q_values)
+        return torch.concat(outputs, dim=0)
 
 
 def fit_dueling_double_REM(model, dataset, state_cols, action_col, reward_col, episode_col, timestep_col, num_episodes=1, alpha=1e-3,
@@ -90,7 +91,7 @@ def fit_dueling_double_REM(model, dataset, state_cols, action_col, reward_col, e
         #     Training      #
         #####################
 
-        avg_mse_loss = 0.0
+        avg_loss = 0.0
 
         # Accumulate gradient over batch
         for i, wis, tr in replay_buffer.sample(N=batch_size):
@@ -99,22 +100,24 @@ def fit_dueling_double_REM(model, dataset, state_cols, action_col, reward_col, e
             action, _ = torch.LongTensor(tr[action_col].values)
             reward, _ = torch.Tensor(tr[reward_col].values)
 
-            # Sample prob distribution for loss
+            # Sample weights from categorical distribution
             alphas = torch.rand(model.K)
             alphas = alphas / torch.sum(alphas)
 
-            # Compute expectation and bootstrap Q-target
+            # Bootstrap Q-target: Q_target = r + gamma * max_a'[alpha.dot(Q(s', a'))]
+            with torch.no_grad():
+                q_next = target(next_state)
+                q_target = reward + gamma * max([torch.dot(alphas, q_next[:, a]) for a in range(q_next.shape[1])])
+
+            # Q estimate of model
             q_prev = torch.dot(alphas, model(state)[:, int(action)])
 
-            with torch.no_grad():
-                Q_next = target(next_state)
-                q_next = reward + gamma * max([torch.dot(alphas, Q_next[:, a]) for a in range(Q_next.shape[1])])
-
-            # Compute loss
-            loss = wis * huber_loss(q_prev, q_next) / batch_size
-            avg_mse_loss += loss.item()
+            # Aggregate Huber loss over batch
+            loss = wis * huber_loss(q_prev, q_target) / batch_size
+            avg_loss += loss.item()
             loss.backward()
 
+        # Update model
         optimizer.step()
         optimizer.zero_grad()
 
@@ -136,6 +139,6 @@ def fit_dueling_double_REM(model, dataset, state_cols, action_col, reward_col, e
             # If simulator available, validate model over 100 episodes
             if eval_func:
                 avg_reward = eval_func(model).groupby(episode_col)[reward_col].sum().mean()
-                print('\nEp %s/%s: HuberLoss = %.2f, TotalReward = %.2f' % (ep, num_episodes, avg_mse_loss, avg_reward))
+                print('\nEp %s/%s: HuberLoss = %.2f, TotalReward = %.2f' % (ep, num_episodes, avg_loss, avg_reward))
             else:
-                print('\nEp %s/%s: HuberLoss = %.2f' % (ep, num_episodes, avg_mse_loss))
+                print('\nEp %s/%s: HuberLoss = %.2f' % (ep, num_episodes, avg_loss))

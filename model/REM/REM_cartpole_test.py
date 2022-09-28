@@ -83,7 +83,7 @@ if __name__ == '__main__':
     model = DuelingREM(state_dim=4, num_actions=2, hidden_dims=(48,), K=16)
 
     # Sample dataset of N episodes for off-policy training
-    dataset = cartpole(num_episodes=10000)
+    dataset = cartpole(num_episodes=8000)
     print(dataset)
 
     # Fit model to dataset
@@ -98,7 +98,7 @@ if __name__ == '__main__':
                            gamma=0.9,
                            tau=1e-2,
                            num_episodes=4000,
-                           batch_size=16,
+                           batch_size=8,
                            eval_func=lambda m: cartpole(m, num_episodes=100, seed=123),  # Evaluate on cartpole simulator!
                            eval_after=100,
                            scheduler_gamma=0.95,
