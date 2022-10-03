@@ -4,7 +4,19 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 
 
+def value_to_color(values, color1=(1, 1, 0), color2=(0, 1, 1)):
+    # Scale values to blend factor
+    blend = (values / np.max(values))[:, np.newaxis]
+
+    # Blend matrices of color1 and color2
+    color1 = np.array([color1]).repeat(len(values), axis=0)
+    color2 = np.array([color2]).repeat(len(values), axis=0)
+    return blend * color1 + (1 - blend) * color2
+    
+
+
 if __name__ == '__main__':
+    ENCODER_PATH = None
     FEATURE_NAME = 'total_iv_fluid'
     COLOR1 = np.array([1, 0, 0])  # red
     COLOR2 = np.array([0, 1, 0])  # blue
@@ -16,8 +28,12 @@ if __name__ == '__main__':
                             'total_urine_output']
     df = pd.read_csv('../preprocessing/datasets/mimic-iii/handcrafted/mimic-iii_test_handcrafted.csv', usecols=STATE_SPACE_FEATURES)
 
-    # TODO: pass states through encoder!
-    X = df.values
+    if ENCODER_PATH is not None:
+        # TODO: load encoder
+        # TODO: pass states through encoder!
+        pass
+    else:
+        X = df.values
 
     tsne = TSNE(n_components=2,
                 learning_rate='auto',
@@ -27,12 +43,7 @@ if __name__ == '__main__':
                 verbose=1)
     X_new = tsne.fit_transform(X)
 
-    # Assign high feature values color1 and others color2
-    feature_vals = df[FEATURE_NAME].values
-    blend = (feature_vals / np.max(feature_vals))[:, np.newaxis]
-    color1 = COLOR1[np.newaxis].repeat(len(X), axis=0)
-    color2 = COLOR2[np.newaxis].repeat(len(X), axis=0)
-    colors = blend * color1 + (1 - blend) * color2
+    colors = value_to_color(df[FEATURE_NAME].values)
 
     # Plot results using pyplot
     plt.scatter(X_new[:, 0], X_new[:, 1], color=colors)
