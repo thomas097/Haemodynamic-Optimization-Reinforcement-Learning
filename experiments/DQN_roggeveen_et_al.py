@@ -27,7 +27,7 @@ if __name__ == '__main__':
     HIDDEN_DIMS = (128, 128)
 
     # load training data
-    df_train = pd.read_csv('../preprocessing/dataset/mimic-iii_train_handcrafted.csv', index_col=0)
+    df_train = pd.read_csv('../preprocessing/datasets/mimic-iii/handcrafted/mimic-iii_train_handcrafted.csv', index_col=0)
 
     # create DQN controller
     dqn_model = DuelingDQN(state_dim=len(STATE_SPACE_FEATURES), num_actions=NUM_ACTIONS, hidden_dims=HIDDEN_DIMS)
