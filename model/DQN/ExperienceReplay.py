@@ -141,9 +141,9 @@ class PrioritizedExperienceReplay:
             next_states = torch.Tensor(np.array(next_states))[:, 0]
 
         # convert to torch Tensors
-        actions = torch.LongTensor(actions).unsqueeze(1)  # TODO: allow gpu devices!
+        actions = torch.LongTensor(actions).unsqueeze(1)  # TODO: enable gpu devices!
         rewards = torch.Tensor(rewards).unsqueeze(1)
-        imp_weights = torch.Tensor(imp_weights)
+        imp_weights = torch.Tensor(imp_weights).unsqueeze(1)
 
         return states, actions, rewards, next_states, trans_indices, imp_weights
 

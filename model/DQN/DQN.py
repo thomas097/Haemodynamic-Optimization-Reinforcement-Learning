@@ -61,6 +61,15 @@ class DuelingDQN(nn.Module):
         return actions.detach().numpy()
 
 
+# Computed HuberLoss with additional (importance) weight assigned to samples
+def weighted_Huber_loss(x, y, weights, delta=1.0):
+    a = 0.5 * torch.pow(x - y, 2)
+    b = delta * (torch.abs(x - y) - 0.5 * delta)
+    mask = (torch.absolute(x - y) < delta).float()
+    hubert_loss = mask * a + (1 - mask) * b
+    return torch.mean(weights * hubert_loss)
+
+
 def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, episode_col, timestep_col, num_episodes=1,
                            alpha=1e-3, gamma=0.99, tau=1e-2, eval_func=None, eval_after=100, batch_size=32,
                            replay_alpha=0.0, replay_beta0=0.4, scheduler_gamma=0.9, step_scheduler_after=100):
@@ -68,10 +77,9 @@ def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, e
     replay_buffer = PrioritizedExperienceReplay(dataset, state_cols, action_col, reward_col, episode_col,
                                                 timestep_col, alpha=replay_alpha, beta0=replay_beta0)
 
-    # Set Adam optimizer with Stepwise lr schedule and loss
+    # Set Adam optimizer with Stepwise lr schedule
     optimizer = optim.Adam(model.parameters(), lr=alpha)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
-    huber_loss = nn.HuberLoss()
 
     # Copy of model for stabilization
     target = copy.deepcopy(model)
@@ -96,8 +104,7 @@ def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, e
         q_prev = model(states).gather(dim=1, index=actions)
 
         # Estimate loss
-        # TODO: add importance weight
-        loss = huber_loss(q_prev, q_target)
+        loss = weighted_Huber_loss(q_prev, q_target, imp_weights)
 
         # Aggregate loss
         optimizer.zero_grad()
