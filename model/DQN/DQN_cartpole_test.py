@@ -5,8 +5,9 @@ import pandas as pd
 from DQN import DuelingDQN, fit_dueling_double_DQN
 
 
-class CartPoleModel:
+class CartPoleTeacherModel:
     def __init__(self):
+        # Yes... 4 parameters are enough to solve cartpole :)
         self._w = np.array([-0.04012991, 0.22891377, -0.1040997, 0.85112371])
 
     def sample(self, state):
@@ -25,7 +26,7 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=Fa
     if seed is not None:
         env.seed(seed)
 
-    behavior_policy = CartPoleModel()
+    behavior_policy = CartPoleTeacherModel()
 
     episode, timestep, states, actions, rewards = [], [], [], [], []
 
@@ -38,7 +39,7 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=Fa
                 env.render()
 
             if model is not None:
-                action = model.sample(state)
+                action = model.sample(state[None])
             else:
                 # Epsilon greedy behavior policy
                 if np.random.random() < epsilon:
@@ -83,7 +84,7 @@ if __name__ == '__main__':
     model = DuelingDQN(state_dim=4, num_actions=2, hidden_dims=(48,))
 
     # Sample dataset of N episodes for off-policy training
-    dataset = cartpole(num_episodes=10000, seed=1)
+    dataset = cartpole(num_episodes=10000, seed=12)
     print(dataset)
 
     # Fit model to dataset
@@ -98,7 +99,7 @@ if __name__ == '__main__':
                            gamma=0.9,
                            tau=1e-2,
                            num_episodes=4000,
-                           batch_size=8,
+                           batch_size=16,
                            eval_func=lambda m: cartpole(m, num_episodes=100, seed=2),  # Evaluate on cartpole simulator!
                            eval_after=100,
                            scheduler_gamma=0.95,

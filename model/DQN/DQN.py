@@ -15,13 +15,13 @@ class DuelingLayer(nn.Module):
     def forward(self, x):
         adv = self._adv(x)
         val = self._val(x)
-        return val + (adv - torch.mean(adv))
+        return val + (adv - torch.mean(adv, dim=1, keepdim=True))
 
 
 class DuelingDQN(nn.Module):
     """ Implementation of a 'dueling' Deep Q-model (van Hasselt et al., 2015).
-        DuelingDQN extends regular DQN by separating the advantage and state
-        value streams: Q(s, a) = V(s) + [A(s, a) - mean(A(s, a))].
+        DuelingDQN extends regular DQN by separating advantage and state value
+        streams as Q(s, a) = V(s) + [A(s, a) - mean_a(A(s, a))].
 
         For details: https://arxiv.org/pdf/1511.06581.pdf
     """
@@ -37,6 +37,7 @@ class DuelingDQN(nn.Module):
         self._base = nn.Sequential(*layers)
         self._head = DuelingLayer(shape[-2], num_actions)
 
+        # Initialize weights using Xavier initialization
         self.apply(self._init_xavier_uniform)
 
         # Move to GPU if available
@@ -49,28 +50,28 @@ class DuelingDQN(nn.Module):
             nn.init.xavier_uniform_(layer.weight)
             layer.bias.data.fill_(0.01)
 
-    def forward(self, state):  # -> state.shape = (state_dim,)
-        h = self._base(state[None])
-        return self._head(h)[0]
+    def forward(self, states):  # -> state.shape = (batch_size, state_dim,)
+        h = self._base(states)
+        return self._head(h)
 
-    def sample(self, state):
-        state = torch.Tensor(state)
+    def sample(self, states):
+        states = torch.Tensor(states)
         with torch.no_grad():
-            action = torch.argmax(self(state))
-        return action.detach().numpy()
+            actions = torch.argmax(self(states))
+        return actions.detach().numpy()
 
 
-def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, episode_col, timestep_col, num_episodes=1, alpha=1e-3,
-                           gamma=0.99, tau=1e-2, eval_func=None, eval_after=100, batch_size=32, replay_alpha=0.0, replay_beta0=0.4,
-                           scheduler_gamma=0.9, step_scheduler_after=100):
+def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, episode_col, timestep_col, num_episodes=1,
+                           alpha=1e-3, gamma=0.99, tau=1e-2, eval_func=None, eval_after=100, batch_size=32,
+                           replay_alpha=0.0, replay_beta0=0.4, scheduler_gamma=0.9, step_scheduler_after=100):
     # Load full dataset into buffer
-    replay_buffer = PrioritizedExperienceReplay(dataset, episode_col, timestep_col, alpha=replay_alpha, beta0=replay_beta0)
+    replay_buffer = PrioritizedExperienceReplay(dataset, state_cols, action_col, reward_col, episode_col,
+                                                timestep_col, alpha=replay_alpha, beta0=replay_beta0)
 
-    huber_loss = nn.HuberLoss()
-
-    # Set Adam optimizer with Stepwise lr schedule
+    # Set Adam optimizer with Stepwise lr schedule and loss
     optimizer = optim.Adam(model.parameters(), lr=alpha)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
+    huber_loss = nn.HuberLoss()
 
     # Copy of model for stabilization
     target = copy.deepcopy(model)
@@ -83,30 +84,27 @@ def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, e
         #     Training      #
         #####################
 
-        avg_loss = 0.0
+        # Sample batch from experience replay
+        states, actions, rewards, next_states, trans_indices, imp_weights = replay_buffer.sample(N=batch_size)
 
-        for i, wis, tr in replay_buffer.sample(N=batch_size):
-            # Unpack transition tuple (s, a, r, s')
-            state, next_state = torch.Tensor(tr[state_cols].values)
-            action, _ = torch.LongTensor(tr[action_col].values)
-            reward, _ = torch.Tensor(tr[reward_col].values)
+        # Bootstrap Q-targets
+        with torch.no_grad():
+            next_model_action = torch.argmax(model(next_states), dim=1, keepdim=True)
+            q_target = rewards + gamma * target(next_states).gather(dim=1, index=next_model_action)
 
-            # Bootstrap Q-target
-            with torch.no_grad():
-                next_model_action = torch.argmax(model(next_state))
-                q_target = reward + gamma * target(next_state)[next_model_action]
+        # Q-estimates of model for states
+        q_prev = model(states).gather(dim=1, index=actions)
 
-            # Q-estimate of model
-            q_prev = model(state)[int(action)]
+        # Estimate loss
+        # TODO: add importance weight
+        loss = huber_loss(q_prev, q_target)
 
-            # Aggregate loss
-            loss = wis * huber_loss(q_prev, q_target) / batch_size
-            avg_loss += loss.item()
-            loss.backward()
-
-        # Update model
-        optimizer.step()
+        # Aggregate loss
         optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # TODO: update importance weights
 
         # Update target network
         with torch.no_grad():
@@ -126,6 +124,6 @@ def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, e
             # If simulator available, validate model over 100 episodes
             if eval_func:
                 avg_reward = eval_func(model).groupby(episode_col)[reward_col].sum().mean()
-                print('\nEp %s/%s: HuberLoss = %.2f, TotalReward = %.2f' % (ep, num_episodes, avg_loss, avg_reward))
+                print('\nEp %s/%s: HuberLoss = %.2f, TotalReward = %.2f' % (ep, num_episodes, loss.item(), avg_reward))
             else:
-                print('\nEp %s/%s: HuberLoss = %.2f' % (ep, num_episodes, avg_loss))
+                print('\nEp %s/%s: HuberLoss = %.2f' % (ep, num_episodes, loss.item()))

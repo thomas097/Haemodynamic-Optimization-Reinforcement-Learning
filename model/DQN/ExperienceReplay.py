@@ -1,48 +1,51 @@
 import pandas as pd
 import numpy as np
+import torch
+from torch.nn.utils.rnn import pad_sequence
 
 
-class OrderedExperienceReplay:
-    """ Implements an ordered Experience Replay (PER) buffer which
-        replays experience in the order they occurred.
-    """
-    def __init__(self, dataset, episode_col='episode', timestep_col='timestep', return_history=False):
-        self._df = dataset.reset_index()
-        self._episode_col = episode_col
-        self._timestep_col = timestep_col
-
-        self._episodes = sorted(list(set(self._df['episode'])))
-        self._current_episode = self._episodes[0]
-
-        self._return_history = return_history
-
-    def sample(self, N=None):
-        # Determine next episode
-        if self._current_episode == self._episodes[-1]:
-            self._current_episode = self._episodes[0]
-            print('End-of-buffer: Starting over!')
-        else:
-            i = self._episodes.index(self._current_episode)
-            self._current_episode = self._episodes[i + 1]
-
-        # Determine indices from episode
-        trans_indices = self._df[self._df[self._episode_col] == self._current_episode]['index'].values[:-1]
-
-        # Optional: Return complete histories
-        if self._return_history:
-            histories = []
-            for i in trans_indices:
-                ep = self._df.loc[i][self._episode_col]
-
-                # Extract relevant history of each sampled transition
-                episode = self._df[self._df[self._episode_col] == ep]
-                history = episode[episode['index'] <= i + 1]
-                histories.append((i, 1.0, history))
-
-            return histories
-
-        # Otherwise: Return single transitions
-        return [(i, 1.0, self._df.loc[i:i + 1]) for i in trans_indices]
+# class OrderedExperienceReplay:
+#     """ Implements an ordered Experience Replay (PER) buffer which
+#         replays experience in the order they occurred.
+#     """
+#     def __init__(self, dataset, episode_col='episode', timestep_col='timestep', return_history=False):
+#         self._df = dataset.reset_index()
+#         self._episode_col = episode_col
+#         self._timestep_col = timestep_col
+#
+#         self._episodes = sorted(list(set(self._df[episode_col])))
+#         self._current_episode = self._episodes[0]
+#         print('Running %s episodes' % len(self._episodes))
+#
+#         self._return_history = return_history
+#
+#     def sample(self, N=None):
+#         # Determine next episode
+#         if self._current_episode == self._episodes[-1]:
+#             self._current_episode = self._episodes[0]
+#             print('End-of-buffer: Starting over!')
+#         else:
+#             i = self._episodes.index(self._current_episode)
+#             self._current_episode = self._episodes[i + 1]
+#
+#         # Determine indices from episode
+#         trans_indices = self._df[self._df[self._episode_col] == self._current_episode]['index'].values[:-1]
+#
+#         # Optional: Return complete histories
+#         if self._return_history:
+#             histories = []
+#             for i in trans_indices:
+#                 ep = self._df.loc[i][self._episode_col]
+#
+#                 # Extract relevant history of each sampled transition
+#                 episode = self._df[self._df[self._episode_col] == ep]
+#                 history = episode[episode['index'] <= i + 1]
+#                 histories.append((i, 1.0, history))
+#
+#             return histories
+#
+#         # Otherwise: Return single transitions
+#         return [(i, 1.0, self._df.loc[i:i + 1]) for i in trans_indices]
 
 
 class PrioritizedExperienceReplay:
@@ -50,8 +53,12 @@ class PrioritizedExperienceReplay:
         (Schaul et al., 2016) for off-policy RL training from log-data.
         See: https://arxiv.org/pdf/1511.05952v3.pdf
     """
-    def __init__(self, dataset, episode_col='episode', timestep_col='timestep', alpha=0.6, beta0=0.4, return_history=False):
+    def __init__(self, dataset, state_cols, action_col='action', reward_col='reward', episode_col='episode',
+                 timestep_col='timestep', alpha=0.6, beta0=0.4, return_history=False):
         self._df = dataset.reset_index()
+        self._state_cols = state_cols
+        self._action_col = action_col
+        self._reward_col = reward_col
         self._episode_col = episode_col
         self._timestep_col = timestep_col
 
@@ -69,7 +76,7 @@ class PrioritizedExperienceReplay:
         # Extract indices of all non-terminal states
         indices = []
         for _, episode in df.groupby(self._episode_col):
-            indices += list(episode['index'].values[:-1])  # [:-1] Ensures terminal states cannot be sampled
+            indices += list(episode['index'].values[:-1])  # [:-1] ensures terminal states are not sampled
         return np.array(indices)
 
     def _selection_probs(self):
@@ -81,9 +88,14 @@ class PrioritizedExperienceReplay:
         w = (self._buffer_size * selection_probs[idx]) ** -self._beta0
         return w / np.max(w)
 
-    def update(self, index, td_error):
-        index = np.where(self._indices == index)[0][0]  # Indices in full index
-        self._TD_errors[index] = np.absolute(td_error)
+    def update(self, indices, td_errors):
+        idx = [np.where(self._indices == i)[0][0] for i in indices]  # Indices in full index
+        self._TD_errors[idx] = np.absolute(td_errors)
+
+    @staticmethod
+    def _consolidate_length(histories):
+        histories = [torch.Tensor(seq) for seq in histories]
+        return pad_sequence(histories, batch_first=True, padding_value=0.0)
 
     def sample(self, N):
         # Stochastically sampling of transitions (indices) from replay buffer
@@ -93,21 +105,47 @@ class PrioritizedExperienceReplay:
         # Compute importance sampling weights for Q-table update
         imp_weights = self._importance_weights(trans_indices, probs)
 
-        # Optional: Return complete histories
-        if self._return_history:
-            histories = []
-            for i, w in zip(trans_indices, imp_weights):
-                ep = self._df.loc[i][self._episode_col]
+        states = []
+        actions = []
+        rewards = []
+        next_states = []
 
-                # Extract relevant history of each sampled transition
+        for i in trans_indices:
+            # What episode does transition `i` belong to?
+            ep = self._df.loc[i][self._episode_col]
+
+            if self._return_history:
+                # Extract relevant history of transition `i` and next state
                 episode = self._df[self._df[self._episode_col] == ep]
-                history = episode[episode['index'] <= i + 1]
-                histories.append((i, w, history))
+                history = episode[episode['index'] <= i + 1][self._state_cols].values
+            else:
+                # Extract just current and next state
+                history = self._df.loc[i: i + 1][self._state_cols].values
 
-            return histories
+            state = history[:-1]
+            action = self._df.loc[i][self._action_col]
+            reward = self._df.loc[i][self._reward_col]
+            next_state = history[1:]
 
-        # Otherwise: Return single transitions
-        return [(i, w, self._df.loc[i:i + 1]) for i, w in zip(trans_indices, imp_weights)]
+            states.append(state)
+            actions.append(action)
+            rewards.append(reward)
+            next_states.append(next_state)
+
+        # If return_histories, consolidate their lengths
+        if self._return_history:
+            states = self._consolidate_length(states)
+            next_states = self._consolidate_length(next_states)
+        else:
+            states = torch.Tensor(np.array(states))[:, 0]  # If no history, no need to keep track of temporal dimension
+            next_states = torch.Tensor(np.array(next_states))[:, 0]
+
+        # convert to torch Tensors
+        actions = torch.LongTensor(actions).unsqueeze(1)  # TODO: allow gpu devices!
+        rewards = torch.Tensor(rewards).unsqueeze(1)
+        imp_weights = torch.Tensor(imp_weights)
+
+        return states, actions, rewards, next_states, trans_indices, imp_weights
 
 
 if __name__ == '__main__':
