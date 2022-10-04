@@ -13,7 +13,7 @@ import pandas as pd
 from tqdm import tqdm
 from DQN import DuelingDQN
 from ckconv_v3 import CKConv
-from ExperienceReplay import PrioritizedExperienceReplay, OrderedExperienceReplay
+from ExperienceReplay import PrioritizedExperienceReplay#, OrderedExperienceReplay
 
 
 # Temporary encoder model
@@ -25,9 +25,9 @@ class CKCNN(torch.nn.Module):
         self._activation = torch.nn.ELU()
 
     def forward(self, x):
-        x = x[None]
-        z = self._activation(self._conv1(x))
-        return self._activation(self._conv2(z)[0, -1])
+        h = self._activation(self._conv1(x))
+        y = self._activation(self._conv2(h))
+        return y[:, -1]  # Return representation of final states
 
 
 # Modified `fit_dueling_double_dqn()` returning whole histories
@@ -36,14 +36,13 @@ def fit_dueling_double_DQN_with_history(model, encoder, dataset, state_cols, act
                                         batch_size=32, replay_alpha=0.0, replay_beta0=0.4, scheduler_gamma=0.9,
                                         step_scheduler_after=100, freeze_encoder=False):
     # Load full dataset into buffer
-    replay_buffer = PrioritizedExperienceReplay(dataset, episode_col, timestep_col, alpha=replay_alpha, beta0=replay_beta0,
-                                                return_history=True)
+    replay_buffer = PrioritizedExperienceReplay(dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
+                                                alpha=replay_alpha, beta0=replay_beta0, return_history=True)
 
-    huber_loss = torch.nn.HuberLoss()
-
-    # Set Adam optimizer with Stepwise lr schedule
+    # Set Adam optimizer with Stepwise lr schedule and loss
     optimizer = torch.optim.Adam(model.parameters(), lr=alpha)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
+    huber_loss = torch.nn.HuberLoss()
 
     # Copy of model for stabilization
     target = copy.deepcopy(model)
@@ -61,34 +60,31 @@ def fit_dueling_double_DQN_with_history(model, encoder, dataset, state_cols, act
         #     Training      #
         #####################
 
-        avg_loss = 0.0
+        # Sample batch from experience replay
+        histories, actions, rewards, next_histories, trans_indices, imp_weights = replay_buffer.sample(N=batch_size)
 
-        for i, wis, tr in replay_buffer.sample(N=batch_size):
-            # Unpack transition tuple (H, a, r)
-            history = torch.Tensor(tr[state_cols].values)
-            action = torch.LongTensor(tr[action_col].values)[-2]  # action/reward at s_t
-            reward = torch.Tensor(tr[reward_col].values)[-2]
+        # Feed histories through encoder
+        states = encoder(histories)
+        next_states = encoder(next_histories)
 
-            # Use encoder to encode state and next state given history; enc(s_t|H_{0:t-1})
-            state = encoder(history[:-1])
-            next_state = encoder(history)
+        # Bootstrap Q-targets
+        with torch.no_grad():
+            next_model_action = torch.argmax(model(next_states), dim=1, keepdim=True)
+            q_target = rewards + gamma * target(next_states).gather(dim=1, index=next_model_action)
 
-            # Bootstrap Q-target
-            with torch.no_grad():
-                next_model_action = torch.argmax(model(next_state))
-                q_target = reward + gamma * target(next_state)[next_model_action]
+        # Q-estimates of model for states
+        q_prev = model(states).gather(dim=1, index=actions)
 
-            # Q-estimate of model
-            q_prev = model(state)[int(action)]
+        # Estimate loss
+        # TODO: add importance weight
+        loss = huber_loss(q_prev, q_target)
 
-            # Aggregate loss
-            loss = wis * huber_loss(q_prev, q_target) / batch_size
-            avg_loss += loss.item()
-            loss.backward()
-
-        # Update model
-        optimizer.step()
+        # Aggregate loss
         optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # TODO: update importance weight
 
         # Update target network
         with torch.no_grad():
@@ -104,7 +100,7 @@ def fit_dueling_double_DQN_with_history(model, encoder, dataset, state_cols, act
         ########################
 
         if ep % eval_after == 0:
-            print('\nEp %s/%s: HuberLoss = %.2f' % (ep, num_episodes, avg_loss))
+            print('\nEp %s/%s: HuberLoss = %.2f' % (ep, num_episodes, loss.item()))
 
 
 if __name__ == '__main__':
@@ -126,7 +122,7 @@ if __name__ == '__main__':
 
     # load training data
     df_train = pd.read_csv('../preprocessing/datasets/mimic-iii/handcrafted/mimic-iii_train_handcrafted.csv', index_col=0)
-    df_train = df_train.fillna(0.0) # TODO: remove
+    df_train = df_train.fillna(0.0)  # TODO: remove
 
     # create encoder
     encoder_model = CKCNN(in_channels=len(STATE_SPACE_FEATURES), out_channels=LATENT_STATE_DIM)

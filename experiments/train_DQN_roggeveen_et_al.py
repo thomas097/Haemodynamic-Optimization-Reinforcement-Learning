@@ -24,10 +24,11 @@ if __name__ == '__main__':
     TIMESTEP_COL = 'timestep'
 
     NUM_ACTIONS = 25
-    HIDDEN_DIMS = (128, 128)
+    HIDDEN_DIMS = (128, 128)  # see (Roggeveen et al., 2021)
 
     # load training data
     df_train = pd.read_csv('../preprocessing/datasets/mimic-iii/handcrafted/mimic-iii_train_handcrafted.csv', index_col=0)
+    print(df_train)
 
     # create DQN controller
     dqn_model = DuelingDQN(state_dim=len(STATE_SPACE_FEATURES), num_actions=NUM_ACTIONS, hidden_dims=HIDDEN_DIMS)
@@ -40,7 +41,7 @@ if __name__ == '__main__':
                            reward_col=REWARD_COL,
                            episode_col=EPISODE_COL,
                            timestep_col=TIMESTEP_COL,
-                           alpha=1e-3,
+                           alpha=1e-4,
                            gamma=0.9,
                            tau=1e-2,
                            num_episodes=4000,
