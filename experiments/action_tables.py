@@ -5,38 +5,46 @@ import seaborn as sns
 import pickle
 
 
-def plot_action_matrix(df, max_vaso_column, iv_fluid_column, max_vaso_ticks, iv_fluid_ticks, by='sofa_score', N=4):
-    """ Plots action matrices of action stored under `action_column` in df,
-        grouped by `by` column in N matrices.
+def plot_action_matrix(df, max_vaso_column, iv_fluid_column, max_vaso_ticks, iv_fluid_ticks,
+                       group_by='sofa_score', mode='intervals', n_groups=3):
     """
-    # Cut data into N bins by `by` column
-    df = df[df[by] != -1]  # drop impossible values
-    df['group'] = pd.cut(df[by], bins=N, precision=2)
+    Plots action matrices of action stored under `action_column` in df,
+    grouped by `by` column in N matrices.
+    """
+    # Drop states where grouping value could not be computed (marked by -1 or NaN)
+    df = df[(df[group_by] != -1) & ~(df[group_by].isna())]
 
+    if mode == 'intervals':
+        df['group'] = pd.cut(df[group_by], bins=n_groups, precision=2)
+    elif mode == 'categories':
+        df['group'] = df[group_by]
+        n_groups = len(set(df['group'].values))  # Recompute `n_groups` as to reflect number of categories
+    else:
+        raise Exception('Mode %s not understood' % mode)
+
+    # Create tables of vasopressor-fluid combinations and their frequencies within each group
     max_value = 0
-    heatmaps = []
+    action_mats = []
     for i, (group, group_df) in enumerate(df.groupby('group')):
         # Create matrix of frequencies of action combinations
         heatmap = group_df.groupby([max_vaso_column, iv_fluid_column]).size().unstack(level=0).values
+        title = '%s = %s' % (group_by, group)
+        action_mats.append((heatmap, title))
 
         # Update max action frequency seen and assign group a label
         max_value = max(np.nanmax(heatmap), max_value)
-        group_label = '%s $\in$ %s' % (by.replace('_', ' ').title(), group)
 
-        heatmaps.append((heatmap, group_label))
-
-    # plot heatmaps side-by-side grouped by `by`
+    # Plot action matrices side-by-side using `sns.heatmap`
     plt.figure(figsize=(12, 4))
-    for i, (heatmap, group_label) in enumerate(heatmaps):
-        plt.subplot(1, N, i + 1)
+    for i, (mat, group_label) in enumerate(action_mats):
+        plt.subplot(1, n_groups, i + 1)
 
-        # Plot `sns.heatmap` without color bar but with values
-        sns.heatmap(heatmap, cmap="Blues", linewidth=0.3, vmin=0.0, vmax=max_value,
+        sns.heatmap(mat, cmap="Blues", linewidth=0.3, vmin=0.0, vmax=max_value,
                     cbar=False, annot=True, fmt='g', cbar_kws={"shrink": .8})
 
         plt.title(group_label)
         plt.xticks(np.arange(len(max_vaso_ticks)), labels=max_vaso_ticks, rotation=90)
-        plt.xlabel('Max VP dose ($\mu$g/kg/min)')
+        plt.xlabel('Max VP dose (mcg/kg/min)')
 
         # Only show IV fluid bin edges at left-most table
         if i == 0:
@@ -52,7 +60,7 @@ def plot_action_matrix(df, max_vaso_column, iv_fluid_column, max_vaso_ticks, iv_
 if __name__ == '__main__':
     # TODO: for now just plot the physician policy
     ACTION = 'discretized_action'
-    BY_COLUMN = 'current_sirs'
+    GROUP_COL = 'current_sirs'
     DATA_PATH = '../preprocessing/datasets/mimic-iii/handcrafted/mimic-iii_train_handcrafted.csv'
     
     ACTIONS_TO_BINS_PATH = '../preprocessing/datasets/mimic-iii/handcrafted/action_to_vaso_fluid_bins.pkl'
@@ -62,7 +70,7 @@ if __name__ == '__main__':
     # read dataset from csv file
     dataset = pd.read_csv(DATA_PATH)
 
-    # load mapping from discretized actions to vasopressor and IV fluid bins
+    # mapping from discretized actions to vasopressor and IV fluid bins
     with open(ACTIONS_TO_BINS_PATH, 'rb') as file:
         action_to_bins = pickle.load(file)
 
@@ -75,7 +83,7 @@ if __name__ == '__main__':
 
     # assign bins their corresponding labels
     plot_action_matrix(df=dataset,
-                       by=BY_COLUMN,
+                       group_by=GROUP_COL,
                        max_vaso_column='max_vaso_actions',
                        iv_fluid_column='iv_fluid_actions',
                        max_vaso_ticks=max_vaso_bins,

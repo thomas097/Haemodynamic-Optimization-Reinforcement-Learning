@@ -6,14 +6,13 @@ Descr.:   Performs the training of a Dueling Double DQN model with state-space
 Date:     01-10-2022
 """
 
-import torch
 import pandas as pd
 
 from DQN import DuelingDQN, fit_dueling_double_DQN
-from ckconv_v3 import CKConv
+from ckconv import CKConv
+from baselines import *
 
 
-# Temporary encoder model
 class CKCNN(torch.nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -47,7 +46,7 @@ if __name__ == '__main__':
     # load training data
     df_train = pd.read_csv('../preprocessing/datasets/mimic-iii/handcrafted/mimic-iii_train_handcrafted.csv', index_col=0)
 
-    # create encoder
+    # create CKNN encoder
     encoder_model = CKCNN(in_channels=len(STATE_SPACE_FEATURES), out_channels=LATENT_STATE_DIM)
 
     # create DQN controller

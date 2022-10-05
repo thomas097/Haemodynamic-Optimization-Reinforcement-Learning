@@ -4,22 +4,19 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 
 
-def value_to_color(values, color1=(1, 1, 0), color2=(0, 1, 1)):
+def value_to_color(values, color1=(36, 123, 160), color2=(255, 100, 79)):
     # Scale values to blend factor
     blend = (values / np.max(values))[:, np.newaxis]
 
     # Blend matrices of color1 and color2
-    color1 = np.array([color1]).repeat(len(values), axis=0)
-    color2 = np.array([color2]).repeat(len(values), axis=0)
+    color1 = np.array([color1]).repeat(len(values), axis=0) / 255
+    color2 = np.array([color2]).repeat(len(values), axis=0) / 255
     return blend * color1 + (1 - blend) * color2
     
 
-
 if __name__ == '__main__':
     ENCODER_PATH = None
-    FEATURE_NAME = 'total_iv_fluid'
-    COLOR1 = np.array([1, 0, 0])  # red
-    COLOR2 = np.array([0, 1, 0])  # blue
+    FEATURE_NAME = 'trombo'
     STATE_SPACE_FEATURES = ['max_vp', 'total_iv_fluid', 'sirs_score', 'sofa_score', 'weight', 'ventilator', 'height',
                             'age', 'gender', 'heart_rate', 'temp', 'mean_bp', 'dias_bp', 'sys_bp', 'resp_rate', 'spo2',
                             'natrium', 'chloride', 'kalium', 'trombo', 'leu', 'anion_gap', 'aptt', 'art_ph', 'asat',
