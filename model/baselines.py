@@ -18,6 +18,20 @@ class StateConcatenation(torch.nn.Module):
         return short_histories.reshape(histories.shape[0], -1)
 
 
+class CausalCNN(torch.nn.Module):
+    """
+    Computes encoding using a causal convolution
+    TODO: make causal using padding
+    """
+    def __init__(self, in_channels=46, out_channels=128, kernel_size=12, dilation=1):
+        super().__init__()
+        self._conv1 = torch.nn.Conv1d(in_channels, out_channels, kernel_size, dilation=dilation)
+
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        return self._conv1(x).permute(0, 2, 1)[:, -1]
+
+
 class LSTMAutoEncoder(torch.nn.Module):
     """ Feeds histories through an LSTM encoder-decoder network as first
         proposed in (Peng et al., 2019) (note that the code of Peng et al.
