@@ -47,13 +47,13 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=Fa
                 else:
                     action = behavior_policy.sample(state)
 
-            next_state, reward, terminated, info = env.step(action)
+            next_state, _, terminated, info = env.step(action)
 
             episode.append(ep)
             timestep.append(ts)
             states.append(state)
             actions.append(action)
-            rewards.append(reward)
+            rewards.append(-100 if terminated else 1)  # More like sepsis scenario with reward based on mortality
 
             if terminated:
                 episode.append(ep)
@@ -83,14 +83,15 @@ if __name__ == '__main__':
     np.random.seed(100)  # reproducibility
 
     # create DQN controller
-    model = DuelingDQN(state_dim=4, num_actions=2, hidden_dims=(96,))
+    model = DuelingDQN(state_dim=4, num_actions=2, hidden_dims=(48,))
 
     # Sample dataset of N episodes for off-policy training
     dataset = cartpole(num_episodes=5000, seed=100)
     print(dataset)
 
     # Fit model to dataset
-    fit_dueling_double_DQN(model=model,
+    fit_dueling_double_DQN(experiment_name='cartpole_test',
+                           policy=model,
                            dataset=dataset,
                            state_cols=['state_0', 'state_1', 'state_2', 'state_3'],
                            action_col='action',
@@ -99,9 +100,9 @@ if __name__ == '__main__':
                            timestep_col='timestep',
                            alpha=1e-4,
                            gamma=0.9,
-                           tau=1e-2,
-                           num_episodes=1000,
-                           batch_size=32,
+                           tau=1e-3,
+                           num_episodes=5000,
+                           batch_size=8,
                            eval_func=lambda m: cartpole(m, num_episodes=100, seed=3),  # Evaluate on cartpole simulator!
                            eval_after=100,
                            scheduler_gamma=0.95,
