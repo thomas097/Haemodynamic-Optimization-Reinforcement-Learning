@@ -14,7 +14,7 @@ class CartPoleTeacherModel:
         return 1 if state.dot(self._w) > 0 else 0
 
 
-def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.1, render=False, seed=None):
+def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=False, seed=None):
     """ Runs a model on the CartPole-v1 gym environment or, when model=None, generates
         off-policy samples to train model on. In case no model is provided, an epsilon
         greedy behavior policy is used based on a learned 4-parameter model.
@@ -80,11 +80,13 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.1, render=Fal
 
 
 if __name__ == '__main__':
+    np.random.seed(100)  # reproducibility
+
     # create DQN controller
-    model = DuelingDQN(state_dim=4, num_actions=2, hidden_dims=(48,))
+    model = DuelingDQN(state_dim=4, num_actions=2, hidden_dims=(96,))
 
     # Sample dataset of N episodes for off-policy training
-    dataset = cartpole(num_episodes=10000, seed=9)
+    dataset = cartpole(num_episodes=5000, seed=100)
     print(dataset)
 
     # Fit model to dataset
@@ -98,9 +100,9 @@ if __name__ == '__main__':
                            alpha=1e-4,
                            gamma=0.9,
                            tau=1e-2,
-                           num_episodes=4000,
+                           num_episodes=1000,
                            batch_size=32,
-                           eval_func=lambda m: cartpole(m, num_episodes=100, seed=5),  # Evaluate on cartpole simulator!
+                           eval_func=lambda m: cartpole(m, num_episodes=100, seed=3),  # Evaluate on cartpole simulator!
                            eval_after=100,
                            scheduler_gamma=0.95,
                            step_scheduler_after=200)

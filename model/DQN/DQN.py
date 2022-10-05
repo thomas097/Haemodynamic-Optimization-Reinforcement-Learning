@@ -3,7 +3,8 @@ import torch
 
 from torch import nn, optim
 from tqdm import tqdm
-from ExperienceReplay import *
+from ExperienceReplay import PrioritizedExperienceReplay
+from PerformanceTracking import PerformanceTracker
 
 
 class DuelingLayer(nn.Module):
@@ -61,7 +62,7 @@ class DuelingDQN(nn.Module):
         return actions.detach().numpy()
 
 
-# Computed HuberLoss with additional (importance) weight assigned to samples
+# Compute HuberLoss with additional (importance) weight assigned to samples
 def weighted_Huber_loss(x, y, weights, delta=1.0):
     a = 0.5 * torch.pow(x - y, 2)
     b = delta * (torch.abs(x - y) - 0.5 * delta)
@@ -76,6 +77,8 @@ def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, e
     # Load full dataset into buffer
     replay_buffer = PrioritizedExperienceReplay(dataset, state_cols, action_col, reward_col, episode_col,
                                                 timestep_col, alpha=replay_alpha, beta0=replay_beta0)
+
+    tracker = PerformanceTracker()
 
     # Set Adam optimizer with Stepwise lr schedule
     optimizer = optim.Adam(model.parameters(), lr=alpha)
@@ -111,26 +114,33 @@ def fit_dueling_double_DQN(model, dataset, state_cols, action_col, reward_col, e
         loss.backward()
         optimizer.step()
 
-        # TODO: update importance weights
-
         # Update target network
         with torch.no_grad():
             for target_w, model_w in zip(target.parameters(), model.parameters()):
                 target_w.data = ((1 - tau) * target_w.data + tau * model_w.data).clone()
 
-        # Update lr scheduler
+        # Update lr scheduler every few episodes
         if ep % step_scheduler_after == 0 and ep > 0:
             scheduler.step()
+
+        # TD-error
+        td_error = torch.abs(q_target - q_prev)
+        # TODO: update importance weights
 
         ########################
         #      Evaluation      #
         ########################
+
+        tracker.add('huber_loss', loss.item())
+        tracker.add('abs_TD_error', torch.mean(td_error))
 
         if ep % eval_after == 0:
 
             # If simulator available, validate model over 100 episodes
             if eval_func:
                 avg_reward = eval_func(model).groupby(episode_col)[reward_col].sum().mean()
-                print('\nEp %s/%s: HuberLoss = %.2f, TotalReward = %.2f' % (ep, num_episodes, loss.item(), avg_reward))
-            else:
-                print('\nEp %s/%s: HuberLoss = %.2f' % (ep, num_episodes, loss.item()))
+                tracker.add('avg_reward', avg_reward)
+
+            print('\nEp %s/%s: %s' % (ep, num_episodes, tracker.print_stats()))
+
+        tracker.save()
