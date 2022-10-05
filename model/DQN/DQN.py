@@ -143,7 +143,7 @@ def fit_dueling_double_DQN(experiment_name, policy, dataset, state_cols, action_
         #       Metrics       #
         #######################
 
-        tracker.add('huber_loss', loss.item())
+        tracker.add('loss', loss.item())
         tracker.add('avg_Q_value', torch.mean(policy(states)).item())
         tracker.add('abs_TD_error', torch.mean(td_error))
 
