@@ -34,7 +34,8 @@ if __name__ == '__main__':
     dqn_model = DuelingDQN(state_dim=len(STATE_SPACE_FEATURES), num_actions=NUM_ACTIONS, hidden_dims=HIDDEN_DIMS)
 
     # fit model
-    fit_dueling_double_DQN(model=dqn_model,
+    fit_dueling_double_DQN(experiment_name='roggeveen_experiment',
+                           policy=dqn_model,
                            dataset=df_train,
                            state_cols=STATE_SPACE_FEATURES,
                            action_col=ACTION_COL,
