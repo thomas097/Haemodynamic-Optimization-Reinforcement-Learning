@@ -5,11 +5,12 @@ import seaborn as sns
 import pickle
 
 
-def plot_action_matrix(df, max_vaso_column, iv_fluid_column, max_vaso_ticks, iv_fluid_ticks, by='sofa_score', N=3):
+def plot_action_matrix(df, max_vaso_column, iv_fluid_column, max_vaso_ticks, iv_fluid_ticks, by='sofa_score', N=4):
     """ Plots action matrices of action stored under `action_column` in df,
         grouped by `by` column in N matrices.
     """
     # Cut data into N bins by `by` column
+    df = df[df[by] != -1]  # drop impossible values
     df['group'] = pd.cut(df[by], bins=N, precision=2)
 
     max_value = 0
@@ -24,7 +25,7 @@ def plot_action_matrix(df, max_vaso_column, iv_fluid_column, max_vaso_ticks, iv_
 
         heatmaps.append((heatmap, group_label))
 
-    # plot heatmaps side-by-side
+    # plot heatmaps side-by-side grouped by `by`
     plt.figure(figsize=(12, 4))
     for i, (heatmap, group_label) in enumerate(heatmaps):
         plt.subplot(1, N, i + 1)
@@ -51,6 +52,7 @@ def plot_action_matrix(df, max_vaso_column, iv_fluid_column, max_vaso_ticks, iv_
 if __name__ == '__main__':
     # TODO: for now just plot the physician policy
     ACTION = 'discretized_action'
+    BY_COLUMN = 'current_sirs'
     DATA_PATH = '../preprocessing/datasets/mimic-iii/handcrafted/mimic-iii_train_handcrafted.csv'
     
     ACTIONS_TO_BINS_PATH = '../preprocessing/datasets/mimic-iii/handcrafted/action_to_vaso_fluid_bins.pkl'
@@ -73,6 +75,7 @@ if __name__ == '__main__':
 
     # assign bins their corresponding labels
     plot_action_matrix(df=dataset,
+                       by=BY_COLUMN,
                        max_vaso_column='max_vaso_actions',
                        iv_fluid_column='iv_fluid_actions',
                        max_vaso_ticks=max_vaso_bins,
