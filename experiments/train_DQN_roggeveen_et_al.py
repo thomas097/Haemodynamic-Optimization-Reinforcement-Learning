@@ -48,4 +48,5 @@ if __name__ == '__main__':
                            num_episodes=4000,
                            batch_size=8,
                            scheduler_gamma=0.95,
-                           step_scheduler_after=200)
+                           step_scheduler_after=200,
+                           reward_clipping=15)
