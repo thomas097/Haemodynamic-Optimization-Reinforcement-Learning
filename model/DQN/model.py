@@ -3,7 +3,7 @@ import torch
 import numpy as np
 
 from tqdm import tqdm
-from experience_replay import PrioritizedExperienceReplay
+from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
 from loss_functions import weighted_Huber_loss, reward_regularizer
 
@@ -69,11 +69,11 @@ class DuelingDQN(torch.nn.Module):
 
 def fit_dueling_double_dqn(experiment, policy, dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
                            num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, lamda=1e-3, eval_func=None, eval_after=100,
-                           batch_size=32, replay_alpha=0.0, replay_beta0=0.4, encoder=None, freeze_encoder=False,
-                           scheduler_gamma=0.9, step_scheduler_after=100, reward_clipping=np.inf):
+                           batch_size=32, replay_params=(0.0, 0.4), scheduler_gamma=0.9, step_scheduler_after=100,
+                           encoder=None, freeze_encoder=False, reward_clipping=np.inf):
 
-    replay_buffer = PrioritizedExperienceReplay(dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
-                                                alpha=replay_alpha, beta0=replay_beta0, return_history=bool(encoder))
+    replay_buffer = PrioritizedReplay(dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
+                                      alpha=replay_params[0], beta0=replay_params[1], return_history=bool(encoder))
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=alpha)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
@@ -82,7 +82,7 @@ def fit_dueling_double_dqn(experiment, policy, dataset, state_cols, action_col, 
     target = copy.deepcopy(policy)
     target.load_state_dict(policy.state_dict())  # Sanity check
 
-    # Freeze encoder's weights (optional)
+    # Freeze encoder (optional)
     if encoder and freeze_encoder:
         for param in encoder.parameters():
             param.requires_grad = False

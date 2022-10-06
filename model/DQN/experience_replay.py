@@ -74,7 +74,7 @@ class ExperienceReplay:
             yield states, actions, rewards, next_states
 
 
-class PrioritizedExperienceReplay:
+class PrioritizedReplay:
     """ Implements the Prioritized Experience Replay (PER) buffer
         (Schaul et al., 2016) for off-policy RL training from log-data.
         See: https://arxiv.org/pdf/1511.05952v3.pdf
