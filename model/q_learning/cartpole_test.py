@@ -2,7 +2,7 @@ import gym
 import numpy as np
 import pandas as pd
 
-from model import DuelingDQN, fit_dueling_double_dqn
+from q_learning import DQN, fit_double_dqn
 
 
 class CartPoleTeacherModel:
@@ -83,31 +83,31 @@ if __name__ == '__main__':
     np.random.seed(100)  # reproducibility
 
     # create DQN controller
-    model = DuelingDQN(state_dim=4, num_actions=2, hidden_dims=(48,))
+    model = DQN(state_dim=4, num_actions=2, hidden_dims=(48,))
 
     # Sample dataset of N episodes for off-policy training
     dataset = cartpole(num_episodes=5000, seed=100)
     print(dataset)
 
     # Fit model to dataset
-    fit_dueling_double_dqn(experiment='cartpole_test',
-                           policy=model,
-                           dataset=dataset,
-                           state_cols=['state_0', 'state_1', 'state_2', 'state_3'],
-                           action_col='action',
-                           reward_col='reward',
-                           episode_col='episode',
-                           timestep_col='timestep',
-                           alpha=1e-4,
-                           gamma=0.9,
-                           tau=1e-3,
-                           num_episodes=5000,
-                           batch_size=8,
-                           eval_func=lambda m: cartpole(m, num_episodes=100, seed=3),  # Evaluate on cartpole simulator!
-                           eval_after=100,
-                           scheduler_gamma=0.95,
-                           step_scheduler_after=200,
-                           reward_clipping=100)
+    fit_double_dqn(experiment='cartpole_test',
+                   policy=model,
+                   dataset=dataset,
+                   state_cols=['state_0', 'state_1', 'state_2', 'state_3'],
+                   action_col='action',
+                   reward_col='reward',
+                   episode_col='episode',
+                   timestep_col='timestep',
+                   alpha=1e-4,
+                   gamma=0.9,
+                   tau=1e-3,
+                   num_episodes=5000,
+                   batch_size=8,
+                   eval_func=lambda m: cartpole(m, num_episodes=100, seed=3),  # Evaluate on cartpole simulator!
+                   eval_after=100,
+                   scheduler_gamma=0.95,
+                   step_scheduler_after=200,
+                   reward_clipping=100)
 
     # Show off model in simulator
     cartpole(model=model, num_episodes=100, render=True)
