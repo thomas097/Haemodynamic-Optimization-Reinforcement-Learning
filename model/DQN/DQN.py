@@ -1,17 +1,17 @@
 import copy
 import torch
+import numpy as np
 
-from torch import nn, optim
 from tqdm import tqdm
 from ExperienceReplay import PrioritizedExperienceReplay
 from PerformanceTracking import PerformanceTracker
 
 
-class DuelingLayer(nn.Module):
+class DuelingLayer(torch.nn.Module):
     def __init__(self, input_dim, output_dim):
         super().__init__()
-        self._val = nn.Linear(input_dim, 1)
-        self._adv = nn.Linear(input_dim, output_dim)
+        self._val = torch.nn.Linear(input_dim, 1)
+        self._adv = torch.nn.Linear(input_dim, output_dim)
 
     def forward(self, x):
         adv = self._adv(x)
@@ -19,7 +19,7 @@ class DuelingLayer(nn.Module):
         return val + (adv - torch.mean(adv, dim=1, keepdim=True))
 
 
-class DuelingDQN(nn.Module):
+class DuelingDQN(torch.nn.Module):
     """ Implementation of a 'dueling' Deep Q-model (van Hasselt et al., 2015).
         DuelingDQN extends regular DQN by separating advantage and state value
         streams as Q(s, a) = V(s) + [A(s, a) - mean_a(A(s, a))].
@@ -33,9 +33,9 @@ class DuelingDQN(nn.Module):
         shape = (state_dim,) + hidden_dims + (num_actions,)
         layers = []
         for i in range(len(shape) - 2):
-            layers.append(nn.Linear(shape[i], shape[i + 1]))
-            layers.append(nn.LeakyReLU())
-        self._base = nn.Sequential(*layers)
+            layers.append(torch.nn.Linear(shape[i], shape[i + 1]))
+            layers.append(torch.nn.LeakyReLU())
+        self._base = torch.nn.Sequential(*layers)
         self._head = DuelingLayer(shape[-2], num_actions)
 
         # Initialize weights using Xavier initialization
@@ -47,8 +47,8 @@ class DuelingDQN(nn.Module):
 
     @staticmethod
     def _init_xavier_uniform(layer):
-        if isinstance(layer, nn.Linear):
-            nn.init.xavier_uniform_(layer.weight)
+        if isinstance(layer, torch.nn.Linear):
+            torch.nn.init.xavier_uniform_(layer.weight)
             layer.bias.data.fill_(0.01)
 
     def forward(self, states):  # -> state.shape = (batch_size, state_dim,)
@@ -62,7 +62,7 @@ class DuelingDQN(nn.Module):
         return actions.detach().numpy()
 
 
-# HuberLoss with additional (importance) weight assigned to samples
+# HuberLoss with additional sample (importance) weight
 def weighted_Huber_loss(x, y, weights, delta=1.0):
     a = 0.5 * torch.pow(x - y, 2)
     b = delta * (torch.abs(x - y) - 0.5 * delta)
@@ -71,10 +71,15 @@ def weighted_Huber_loss(x, y, weights, delta=1.0):
     return torch.mean(weights * hubert_loss)
 
 
+# Punishes model for overshooting Q-values
+def reward_regularization(q_pred, max_reward):
+    return torch.clamp(torch.abs(q_pred) - max_reward, min=0).sum().double()
+
+
 def fit_dueling_double_DQN(experiment_name, policy, dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
                            num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, eval_func=None, eval_after=100, batch_size=32,
                            replay_alpha=0.0, replay_beta0=0.4, encoder=None, freeze_encoder=False, scheduler_gamma=0.9,
-                           step_scheduler_after=100):
+                           step_scheduler_after=100, reward_clipping=np.inf):
     # To track metrics such as TD-error
     tracker = PerformanceTracker(experiment_name)
 
@@ -82,8 +87,8 @@ def fit_dueling_double_DQN(experiment_name, policy, dataset, state_cols, action_
     replay_buffer = PrioritizedExperienceReplay(dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
                                                 alpha=replay_alpha, beta0=replay_beta0, return_history=bool(encoder))
 
-    optimizer = optim.Adam(policy.parameters(), lr=alpha)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=alpha)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
 
     target = copy.deepcopy(policy)
     target.load_state_dict(policy.state_dict())  # Sanity check
@@ -116,10 +121,11 @@ def fit_dueling_double_DQN(experiment_name, policy, dataset, state_cols, action_
             next_model_action = torch.argmax(policy(next_states), dim=1, keepdim=True)
             q_target = rewards + gamma * target(next_states).gather(dim=1, index=next_model_action)
 
-        q_prev = policy(states).gather(dim=1, index=actions)
+        q_pred = policy(states).gather(dim=1, index=actions)
 
         # Estimate loss
-        loss = weighted_Huber_loss(q_prev, q_target, imp_weights)
+        loss = weighted_Huber_loss(q_pred, q_target, imp_weights)
+        loss += reward_regularization(q_pred, reward_clipping)
 
         # Update policy network
         optimizer.zero_grad()
@@ -136,7 +142,7 @@ def fit_dueling_double_DQN(experiment_name, policy, dataset, state_cols, action_
             scheduler.step()
 
         # TD-error
-        td_error = torch.abs(q_target - q_prev)
+        td_error = torch.abs(q_target - q_pred)
         # TODO: update importance weights using td_error
 
         #######################

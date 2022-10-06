@@ -106,7 +106,8 @@ if __name__ == '__main__':
                            eval_func=lambda m: cartpole(m, num_episodes=100, seed=3),  # Evaluate on cartpole simulator!
                            eval_after=100,
                            scheduler_gamma=0.95,
-                           step_scheduler_after=200)
+                           step_scheduler_after=200,
+                           reward_clipping=100)
 
     # Try out model in simulator
     cartpole(model=model, num_episodes=100, render=True)
