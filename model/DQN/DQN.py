@@ -8,6 +8,10 @@ from PerformanceTracking import PerformanceTracker
 
 
 class DuelingLayer(torch.nn.Module):
+    """ Implementation of a `Dueling` layer, separating state-
+        value estimation and advantage functions as:
+        Q(s, a) = V(s) + [A(s, a) - mean_a(A(s, a))]
+    """
     def __init__(self, input_dim, output_dim):
         super().__init__()
         self._val = torch.nn.Linear(input_dim, 1)
@@ -20,23 +24,21 @@ class DuelingLayer(torch.nn.Module):
 
 
 class DuelingDQN(torch.nn.Module):
-    """ Implementation of a 'dueling' Deep Q-model (van Hasselt et al., 2015).
-        DuelingDQN extends regular DQN by separating advantage and state value
-        streams as Q(s, a) = V(s) + [A(s, a) - mean_a(A(s, a))].
-
+    """ Implementation of a 'dueling' DQN model (van Hasselt et al., 2015).
         For details: https://arxiv.org/pdf/1511.06581.pdf
     """
     def __init__(self, state_dim=10, num_actions=2, hidden_dims=()):
         super(DuelingDQN, self).__init__()
+        """ Initialize shared feature network and dueling output """
 
         # Shared feature network
-        shape = (state_dim,) + hidden_dims + (num_actions,)
+        shape = (state_dim,) + hidden_dims
         layers = []
-        for i in range(len(shape) - 2):
+        for i in range(len(shape) - 1):
             layers.append(torch.nn.Linear(shape[i], shape[i + 1]))
             layers.append(torch.nn.LeakyReLU())
         self._base = torch.nn.Sequential(*layers)
-        self._head = DuelingLayer(shape[-2], num_actions)
+        self._head = DuelingLayer(shape[-1], num_actions)
 
         # Initialize weights using Xavier initialization
         self.apply(self._init_xavier_uniform)
@@ -47,23 +49,26 @@ class DuelingDQN(torch.nn.Module):
 
     @staticmethod
     def _init_xavier_uniform(layer):
+        """ Init weights using Xavier initialization """
         if isinstance(layer, torch.nn.Linear):
             torch.nn.init.xavier_uniform_(layer.weight)
             layer.bias.data.fill_(0.01)
 
     def forward(self, states):  # -> state.shape = (batch_size, state_dim,)
+        """ Forward pass through DQN network """
         h = self._base(states)
         return self._head(h)
 
     def sample(self, states):
+        """ Sample policy deterministically given state """
         states = torch.Tensor(states)
         with torch.no_grad():
             actions = torch.argmax(self(states))
         return actions.detach().numpy()
 
 
-# HuberLoss with additional sample (importance) weight
 def weighted_Huber_loss(x, y, weights, delta=1.0):
+    """ HuberLoss with additional sample (importance) weight """
     a = 0.5 * torch.pow(x - y, 2)
     b = delta * (torch.abs(x - y) - 0.5 * delta)
     mask = (torch.absolute(x - y) < delta).float()
@@ -71,8 +76,8 @@ def weighted_Huber_loss(x, y, weights, delta=1.0):
     return torch.mean(weights * hubert_loss)
 
 
-# Punishes model for overshooting Q-values
 def reward_regularization(q_pred, max_reward):
+    """ Punish policy for overestimating Q-values above maximum reward """
     return torch.clamp(torch.abs(q_pred) - max_reward, min=0).sum().double()
 
 
@@ -80,32 +85,35 @@ def fit_dueling_double_DQN(experiment_name, policy, dataset, state_cols, action_
                            num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, eval_func=None, eval_after=100, batch_size=32,
                            replay_alpha=0.0, replay_beta0=0.4, encoder=None, freeze_encoder=False, scheduler_gamma=0.9,
                            step_scheduler_after=100, reward_clipping=np.inf):
-    # To track metrics such as TD-error
-    tracker = PerformanceTracker(experiment_name)
-
-    # If encoder supplied, return entire histories
+    """ Fits a Dueling Double DQN to observational data given by `dataset`, optionally taking an
+        encoder model (e.g. LSTM, CKCNN) to reduce a state history to a closed representation.
+    """
+    # Sample transitions from replay buffer (If encoder supplied, return entire histories)
     replay_buffer = PrioritizedExperienceReplay(dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
                                                 alpha=replay_alpha, beta0=replay_beta0, return_history=bool(encoder))
-
-    optimizer = torch.optim.Adam(policy.parameters(), lr=alpha)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
-
+    # Delayed target to improve stability
     target = copy.deepcopy(policy)
     target.load_state_dict(policy.state_dict())  # Sanity check
 
     # Freeze encoder weights if desired
     if encoder and freeze_encoder:
-        print('Freezing encoder...')
         for param in encoder.parameters():
             param.requires_grad = False
+        print('Freezing encoder...')
 
-    # Gradient clipping: prevent bad batches from triggering catastrophic collapse
+    # Gradient clipping to prevent catastrophic collapse
     for w in policy.parameters():
         w.register_hook(lambda grad: torch.clamp(grad, -1, 1))
 
     #####################
     #     Training      #
     #####################
+
+    # Track metrics such as TD-error
+    tracker = PerformanceTracker(experiment_name)
+
+    optimizer = torch.optim.Adam(policy.parameters(), lr=alpha)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
 
     for ep in tqdm(range(num_episodes)):
         policy.train(True)

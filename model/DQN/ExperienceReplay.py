@@ -4,48 +4,74 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 
 
-# class OrderedExperienceReplay:
-#     """ Implements an ordered Experience Replay (PER) buffer which
-#         replays experience in the order they occurred.
-#     """
-#     def __init__(self, dataset, episode_col='episode', timestep_col='timestep', return_history=False):
-#         self._df = dataset.reset_index()
-#         self._episode_col = episode_col
-#         self._timestep_col = timestep_col
-#
-#         self._episodes = sorted(list(set(self._df[episode_col])))
-#         self._current_episode = self._episodes[0]
-#         print('Running %s episodes' % len(self._episodes))
-#
-#         self._return_history = return_history
-#
-#     def sample(self, N=None):
-#         # Determine next episode
-#         if self._current_episode == self._episodes[-1]:
-#             self._current_episode = self._episodes[0]
-#             print('End-of-buffer: Starting over!')
-#         else:
-#             i = self._episodes.index(self._current_episode)
-#             self._current_episode = self._episodes[i + 1]
-#
-#         # Determine indices from episode
-#         trans_indices = self._df[self._df[self._episode_col] == self._current_episode]['index'].values[:-1]
-#
-#         # Optional: Return complete histories
-#         if self._return_history:
-#             histories = []
-#             for i in trans_indices:
-#                 ep = self._df.loc[i][self._episode_col]
-#
-#                 # Extract relevant history of each sampled transition
-#                 episode = self._df[self._df[self._episode_col] == ep]
-#                 history = episode[episode['index'] <= i + 1]
-#                 histories.append((i, 1.0, history))
-#
-#             return histories
-#
-#         # Otherwise: Return single transitions
-#         return [(i, 1.0, self._df.loc[i:i + 1]) for i in trans_indices]
+class ExperienceReplay:
+    """ Implements a simple Experience Replay buffer which returns
+        episodes in the order they occur in the dataset.
+    """
+    def __init__(self, dataset, state_cols, action_col='action', reward_col='reward', episode_col='episode',
+                 timestep_col='timestep', return_history=False):
+        self._df = dataset.reset_index()
+        self._state_cols = state_cols
+        self._action_col = action_col
+        self._reward_col = reward_col
+        self._episode_col = episode_col
+        self._timestep_col = timestep_col
+
+        # Determines indices of non-terminal states in df
+        self._indices = self._non_terminal_indices(self._df)
+        self._buffer_size = len(self._indices)
+        self._return_history = return_history
+
+    def _non_terminal_indices(self, df):
+        # Extract indices of all non-terminal states
+        indices = []
+        for _, episode in df.groupby(self._episode_col):
+            indices += list(episode['index'].values[:-1])  # [:-1] ensures terminal states are not sampled
+        return indices
+
+    @staticmethod
+    def _consolidate_length(histories):
+        histories = [torch.Tensor(seq) for seq in histories]
+        return pad_sequence(histories, batch_first=True, padding_value=0.0)
+
+    def batches(self, N):
+        # Generator which yields batches of size N
+        for j in range(0, self._buffer_size, N):
+
+            batch_indices = self._indices[j: j + N]
+            states, actions, rewards, next_states = [], [], [], []
+
+            for i in batch_indices:
+
+                if self._return_history:
+                    # What episode does transition `i` belong to?
+                    ep = self._df.loc[i][self._episode_col]
+
+                    # Extract relevant history of transition `i` and next state
+                    episode = self._df[self._df[self._episode_col] == ep]
+                    history = episode[episode['index'] <= i + 1][self._state_cols].values
+                else:
+                    # Extract just current and next state
+                    history = self._df.loc[i: i + 1][self._state_cols].values
+
+                states.append(history[:-1])
+                actions.append(self._df.loc[i][self._action_col])
+                rewards.append(self._df.loc[i][self._reward_col])
+                next_states.append(history[1:])
+
+            # If return_histories, consolidate their lengths
+            if self._return_history:
+                states = self._consolidate_length(states)
+                next_states = self._consolidate_length(next_states)
+            else:
+                states = torch.Tensor(np.array(states))[:, 0]  # If no history, no need to keep track of temporal dimension
+                next_states = torch.Tensor(np.array(next_states))[:, 0]
+
+            # convert to torch Tensors
+            actions = torch.LongTensor(actions).unsqueeze(1)  # TODO: enable gpu devices!
+            rewards = torch.Tensor(rewards).unsqueeze(1)
+
+            yield states, actions, rewards, next_states
 
 
 class PrioritizedExperienceReplay:
@@ -111,10 +137,11 @@ class PrioritizedExperienceReplay:
         next_states = []
 
         for i in trans_indices:
-            # What episode does transition `i` belong to?
-            ep = self._df.loc[i][self._episode_col]
 
             if self._return_history:
+                # What episode does transition `i` belong to?
+                ep = self._df.loc[i][self._episode_col]
+
                 # Extract relevant history of transition `i` and next state
                 episode = self._df[self._df[self._episode_col] == ep]
                 history = episode[episode['index'] <= i + 1][self._state_cols].values
@@ -122,15 +149,10 @@ class PrioritizedExperienceReplay:
                 # Extract just current and next state
                 history = self._df.loc[i: i + 1][self._state_cols].values
 
-            state = history[:-1]
-            action = self._df.loc[i][self._action_col]
-            reward = self._df.loc[i][self._reward_col]
-            next_state = history[1:]
-
-            states.append(state)
-            actions.append(action)
-            rewards.append(reward)
-            next_states.append(next_state)
+            states.append(history[:-1])
+            actions.append(self._df.loc[i][self._action_col])
+            rewards.append(self._df.loc[i][self._reward_col])
+            next_states.append(history[1:])
 
         # If return_histories, consolidate their lengths
         if self._return_history:
