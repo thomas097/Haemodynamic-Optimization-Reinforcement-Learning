@@ -38,10 +38,10 @@ class ExperienceReplay:
         # Generator which yields batches of size N
         for j in range(0, self._buffer_size, N):
 
-            batch_indices = self._indices[j: j + N]
+            batch_transitions = self._indices[j: j + N]
             states, actions, rewards, next_states = [], [], [], []
 
-            for i in batch_indices:
+            for i in batch_transitions:
 
                 if self._return_history:
                     # What episode does transition `i` belong to?
@@ -102,7 +102,7 @@ class PrioritizedReplay:
         # Extract indices of all non-terminal states
         indices = []
         for _, episode in df.groupby(self._episode_col):
-            indices += list(episode['index'].values[:-1])  # [:-1] ensures terminal states are not sampled
+            indices += list(episode.index.values[:-1])  # [:-1] ensures terminal states are not sampled
         return np.array(indices)
 
     def _selection_probs(self):
@@ -126,17 +126,17 @@ class PrioritizedReplay:
     def sample(self, N):
         # Stochastically sampling of transitions (indices) from replay buffer
         probs = self._selection_probs()
-        trans_indices = np.random.choice(self._indices, size=N, replace=False, p=probs)
+        transitions = np.random.choice(self._indices, size=N, replace=False, p=probs)
 
         # Compute importance sampling weights for Q-table update
-        imp_weights = self._importance_weights(trans_indices, probs)
+        imp_weights = self._importance_weights(transitions, probs)
 
         states = []
         actions = []
         rewards = []
         next_states = []
 
-        for i in trans_indices:
+        for i in transitions:
 
             if self._return_history:
                 # What episode does transition `i` belong to?
@@ -167,7 +167,7 @@ class PrioritizedReplay:
         rewards = torch.Tensor(rewards).unsqueeze(1)
         imp_weights = torch.Tensor(imp_weights).unsqueeze(1)
 
-        return states, actions, rewards, next_states, trans_indices, imp_weights
+        return states, actions, rewards, next_states, transitions, imp_weights
 
 
 if __name__ == '__main__':

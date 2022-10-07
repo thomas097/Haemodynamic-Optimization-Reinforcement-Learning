@@ -40,7 +40,6 @@ class DQN(torch.nn.Module):
             layers.append(torch.nn.LeakyReLU())
         self._base = torch.nn.Sequential(*layers)
 
-        # Dueling or 'regular' output
         if dueling:
             self._head = DuelingLayer(shape[-1], num_actions)
         else:
