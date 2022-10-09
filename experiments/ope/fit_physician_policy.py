@@ -37,12 +37,14 @@ def estimate_behavior_policy(train_set, state_cols, action_col, metric, num_neig
     return knn, actions
 
 
-def evaluate_behavior_policy(policy, train_actions, dataset, state_cols, action_col, batch_size=128):
+def evaluate_policy(policy, train_actions, dataset, state_cols, action_col, reward_col, batch_size=128):
     """ Applies policy to held-out dataset and estimates distribution over actions.
     """
     # Load train/valid/test set into DataFrame
-    df = pd.read_csv(dataset, usecols=state_cols + [action_col])
+    df = pd.read_csv(dataset, usecols=state_cols + [action_col, reward_col])
     indices = df.index.values
+    actions = df[action_col].values
+    rewards = df[reward_col].values
     states = df[state_cols].values
 
     all_action_probs = []
@@ -56,6 +58,9 @@ def evaluate_behavior_policy(policy, train_actions, dataset, state_cols, action_
         neigh_indices = policy.kneighbors(states[index_batch], return_distance=False)
         neigh_actions = train_actions[neigh_indices]
 
+        # Add action actually chosen by policy
+        neigh_actions = np.column_stack([neigh_actions, actions[index_batch]])
+
         # Convert actions incidence (0-24) to probabilities
         k = neigh_actions.shape[1]
         action_probs = np.column_stack([np.sum(neigh_actions == a, axis=1) / k for a in range(25)])
@@ -64,7 +69,8 @@ def evaluate_behavior_policy(policy, train_actions, dataset, state_cols, action_
     # Combine batches into DataFrame with action probabilities
     action_probs = pd.DataFrame(data=np.concatenate(all_action_probs, axis=0),
                                 columns=range(25), index=indices)
-    return action_probs
+
+    return action_probs, actions, rewards
 
 
 if __name__ == '__main__':
@@ -84,14 +90,15 @@ if __name__ == '__main__':
                   'inr', 'ureum', 'albumin', 'magnesium', 'calcium', 'pf_ratio', 'glucose', 'total_urine_output',
                   'running_total_urine_output', 'running_total_iv_fluid']
     ACTION_COL = 'action'
+    REWARD_COL = 'reward'
 
     # Assign certain features additional weight. Please refer to (Roggeveen et al., 2021).
     SPECIAL_WEIGHTS = {'age': 2, 'chloride': 2, 'lactate': 2, 'pf_ratio': 2, 'sofa_score': 2, 'weight': 2,
                        'total_urine_output': 2, 'dias_bp': 2, 'mean_bp': 2}
 
-    ######################
-    #     Estimation     #
-    ######################
+    #######################
+    #   Estimate Policy   #
+    #######################
 
     OUT_DIR = 'physician_policy/'
     if not os.path.exists(OUT_DIR):
@@ -101,12 +108,14 @@ if __name__ == '__main__':
     weighted_dist = WeightedMinkowski(STATE_COLS, SPECIAL_WEIGHTS)
     policy, train_actions = estimate_behavior_policy(TRAIN_SET, STATE_COLS, ACTION_COL, metric=weighted_dist)
 
-    # Step 2. Estimate action distribution of behavior policy over datasets
+    # Step 2. Estimate action distribution of behavior policy over each dataset
     for dataset in DATASETS:
-        policy_actions = evaluate_behavior_policy(policy, train_actions, dataset, STATE_COLS, ACTION_COL)
+        action_probs, actions, rewards = evaluate_policy(policy, train_actions, dataset, STATE_COLS, ACTION_COL, REWARD_COL)
 
-        outfile = OUT_DIR + Path(dataset).stem + '_behavior_policy.csv'
-        np.savetxt(outfile, policy_actions)
+        outfile = OUT_DIR + Path(dataset).stem
+        np.savetxt(outfile + '_action_probs.csv', action_probs)
+        np.savetxt(outfile + '_actions.csv', actions)
+        np.savetxt(outfile + '_rewards.csv', rewards)
 
 
 
