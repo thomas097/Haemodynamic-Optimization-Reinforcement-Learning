@@ -107,13 +107,19 @@ if __name__ == '__main__':
     random_policy = np.random.uniform(0.0, 1, behavior_policy.shape)
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
 
+    # Zero policy (inaction)
+    zero_policy = np.zeros(behavior_policy.shape)
+    zero_policy[:, 0] = 1
+
     print('IS:')
     print('behavior:', _is(behavior_policy))
     print('random:  ', _is(random_policy))
+    print('zero:    ', _is(zero_policy))
 
     print('\nWIS:')
     print('behavior:', wis(behavior_policy))
     print('random:  ', wis(random_policy))
+    print('zero:    ', wis(zero_policy))
 
     # Sanity check: estimate true discounted reward
     rewards = behavior_df['reward'].values.reshape(-1, 18)[:, :-1]
