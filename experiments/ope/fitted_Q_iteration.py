@@ -122,9 +122,9 @@ class FittedQIteration:
 
             # Print metrics every so often averaged over last 10 iterations
             if i % 10 == 0 or i == self._max_iters - 1:
-                avg_td_error = np.mean(td_errors[-10:])
-                avg_meanQ = np.mean(meanQs[-10:])
-                avg_varQ = np.mean(varQs[-10:])
+                avg_td_error = float(np.mean(td_errors[-10:]))
+                avg_meanQ = float(np.mean(meanQs[-10:]))
+                avg_varQ = float(np.mean(varQs[-10:]))
                 print('Iter %s/%s: TD-error = %.3f, Q_mean = %.3f, Q_var = %.3f' %
                       (i + 1, self._max_iters, avg_td_error, avg_meanQ, avg_varQ))
 
@@ -142,4 +142,4 @@ if __name__ == '__main__':
 
     # Metric
     fqi = FittedQIteration(TRAINING_DATA, STATE_COLS, 'action', 'reward', 'icustay_id',
-                           method='rf', params={'n_estimators': 200, 'max_depth': 5})
+                           method='rf', params={'n_estimators': 80, 'max_depth': 5})
