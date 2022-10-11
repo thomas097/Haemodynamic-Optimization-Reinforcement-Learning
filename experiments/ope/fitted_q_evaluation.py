@@ -33,6 +33,7 @@ class FittedQEvaluation:
         self._gamma = gamma
         self._max_iters = max_iters
         self._verbose = verbose
+        self.is_fitted = False
 
     def _create_state_action_table(self, states, actions, non_terminal_only=True):
         # Drop terminal states (no action, nor reward)
@@ -70,6 +71,7 @@ class FittedQEvaluation:
     def fit(self, policy):
         # Initial fit of estimator setting Q(s, a) = 0
         self._estimator.fit(self._states_actions, np.zeros(self._rewards.shape))
+        prev_q = 0.0
 
         # Limit pi(a|s) to 'next' actions and 'next' states
         policy = policy[~self._is_start_state].flatten()
@@ -85,9 +87,6 @@ class FittedQEvaluation:
             # Predict Q(s', a') using estimator for Q
             q_values = self._estimator.predict(next_states_actions)
 
-            if self._verbose:
-                print('It %s/%s: Average Q-value = %.3f' % (it + 1, self._max_iters, np.mean(q_values)))
-
             # Compute expected SARSA 'next state'-value: sum_a[pi(a|s) * Q(s', a')]
             self._Q_table['policy_q'] = policy * q_values
             next_state_value = self._Q_table.groupby('next_state_id', sort=False)['policy_q'].sum()
@@ -97,6 +96,12 @@ class FittedQEvaluation:
 
             # Refit estimator
             self._estimator.fit(self._states_actions, y)
+
+            if self._verbose:
+                avg_q = np.mean(q_values)
+                avg_loss = np.mean(np.absolute(prev_q - y))
+                print('It %s/%s: Mean Q-value = %.3f  MAE = %.3f' % (it + 1, self._max_iters, avg_q, avg_loss))
+            prev_q = y
 
     def Q(self, states, actions):
         # Create state-action table with dummy-encoded actions
@@ -117,7 +122,7 @@ class FittedQEvaluation:
 
 
 if __name__ == '__main__':
-    training_data = pd.read_csv('../datasets/mimic-iii/roggeveen/mimic-iii_train.csv')
+    training_data = pd.read_csv('../../preprocessing/datasets/mimic-iii/roggeveen/mimic-iii_train.csv')
 
     # Unpack training dataset into states, actions, rewards and episode IDs
     meta_data = ['icustay_id', 'timestep', 'max_vp_shifted', 'total_iv_fluid_shifted', 'reward', 'action', 'state_sirs']
@@ -130,7 +135,7 @@ if __name__ == '__main__':
     is_start_state = np.insert(episodes[1:] != episodes[:-1], 0, True)
 
     # Unpack behavior policy
-    behavior_df = pd.read_csv('../physician_policy/mimic-iii_train_behavior_policy.csv')
+    behavior_df = pd.read_csv('physician_policy/mimic-iii_train_behavior_policy.csv')
     behavior_policy = behavior_df[[str(i) for i in range(25)]].values
 
     # Fit FQE

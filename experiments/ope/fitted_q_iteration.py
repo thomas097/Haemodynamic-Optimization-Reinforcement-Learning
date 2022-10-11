@@ -33,6 +33,7 @@ class FittedQIteration:
         self._gamma = gamma
         self._max_iters = max_iters
         self._verbose = verbose
+        self.is_fitted = False
 
         # Initial fit
         self._fit()
@@ -70,7 +71,7 @@ class FittedQIteration:
         header = ['x%s' % i for i in range(state_dims + num_actions)] + ['policy_q', 'next_state_id']
         return pd.DataFrame(data=table, columns=header)
 
-    def _fit(self):
+    def _fit(self, policy=None):
         # Initial fit of estimator setting Q(s, a) = r
         self._estimator.fit(self._states_actions, self._rewards)
         prev_q = 0.0
@@ -93,21 +94,24 @@ class FittedQIteration:
             # Bootstrap Q-estimate
             y = self._rewards + self._gamma * (next_state_value * to_terminal)
 
+            # Refit estimator
+            self._estimator.fit(self._states_actions, y)
+
             if self._verbose:
                 avg_q = np.mean(q_values)
                 avg_loss = np.mean(np.absolute(prev_q - y))
                 print('It %s/%s: Mean Q-value = %.3f  MAE = %.3f' % (it + 1, self._max_iters, avg_q, avg_loss))
-
-            # Refit estimator
-            self._estimator.fit(self._states_actions, y)
             prev_q = y
+
+        # Indicate estimator has been fitted
+        self.is_fitted = True
 
     def Q(self, states, actions):
         # Create state-action table with dummy-encoded actions
         states_actions = self._create_state_action_table(states, actions, non_terminal_only=False)
         return self._estimator.predict(states_actions)
 
-    def V(self, states):
+    def V(self, states, *_):
         # Create Q-table with all combinations of states and possible actions ('0'-'25')
         Q_table = self._create_Q_table(states, self._action_space, next_states_only=False)
 
@@ -120,7 +124,7 @@ class FittedQIteration:
 
 
 if __name__ == '__main__':
-    training_data = pd.read_csv('../datasets/mimic-iii/roggeveen/mimic-iii_train.csv')
+    training_data = pd.read_csv('../../preprocessing/datasets/mimic-iii/roggeveen/mimic-iii_train.csv')
 
     # Unpack training dataset into states, actions, rewards and episode IDs
     meta_data = ['icustay_id', 'timestep', 'max_vp_shifted', 'total_iv_fluid_shifted', 'reward', 'action', 'state_sirs']
@@ -132,8 +136,8 @@ if __name__ == '__main__':
     # Identify start states s0 and action space
     is_start_state = np.insert(episodes[1:] != episodes[:-1], 0, True)
 
-    # Unpack behavior policy
-    behavior_df = pd.read_csv('../physician_policy/mimic-iii_train_behavior_policy.csv')
+    # Behavior policy
+    behavior_df = pd.read_csv('physician_policy/mimic-iii_train_behavior_policy.csv')
     behavior_policy = behavior_df[[str(i) for i in range(25)]].values
 
     # Fit FQI
