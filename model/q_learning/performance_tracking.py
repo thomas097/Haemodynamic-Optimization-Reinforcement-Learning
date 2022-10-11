@@ -27,7 +27,7 @@ class PerformanceTracker:
         self.save()  # to make sure we won't lose progress on abort!
 
     def print_stats(self):
-        return ', '.join(['%s = %.2f' % (m, self._metrics[m][-1]) for m in self._names])
+        return ', '.join(['%s = %.3f' % (m, self._metrics[m][-1]) for m in self._names])
 
     def save(self):
         # Store metrics as .npy

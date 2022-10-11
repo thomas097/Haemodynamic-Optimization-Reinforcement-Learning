@@ -64,22 +64,28 @@ class DQN(torch.nn.Module):
         h = self._base(states)
         return self._head(h)
 
+    def action_probs(self, states):
+        """ Return probability of action given state as given by softmax """
+        states = torch.Tensor(states)
+        with torch.no_grad():
+            actions = torch.softmax(self(states), dim=1)
+        return actions.detach().numpy()
+
     def sample(self, states):
-        """ Sample action given state according to policy """
+        """ Sample action given state """
         states = torch.Tensor(states)
         with torch.no_grad():
             actions = torch.argmax(self(states), dim=1)
         return actions.detach().numpy()
 
 
-def fit_double_dqn(experiment, policy, dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
-                   num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, lamda=1e-3, eval_func=None, eval_after=100,
-                   batch_size=32, replay_params=(0.0, 0.4), scheduler_gamma=0.9, step_scheduler_after=100,
-                   encoder=None, freeze_encoder=False, reward_clipping=np.inf):
+def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, timesteps, num_episodes=1, alpha=1e-3,
+                   gamma=0.99, tau=1e-2, lamda=1e-3, eval_func=None, eval_after=100, batch_size=32, replay_params=(0.0, 0.4),
+                   scheduler_gamma=0.9, step_scheduler_after=100, encoder=None, freeze_encoder=False, reward_clipping=np.inf):
 
     # Upload dataset to experience buffer
-    replay_buffer = PrioritizedReplay(dataset, state_cols, action_col, reward_col, episode_col, timestep_col,
-                                      alpha=replay_params[0], beta0=replay_params[1], return_history=bool(encoder))
+    replay_buffer = PrioritizedReplay(states, actions, rewards, episodes, timesteps, alpha=replay_params[0],
+                                      beta0=replay_params[1], return_history=bool(encoder))
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=alpha)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
@@ -153,13 +159,14 @@ def fit_double_dqn(experiment, policy, dataset, state_cols, action_col, reward_c
         ############################
 
         tracker.add('loss', loss.item())
-        tracker.add('avg_Q_value', torch.mean(policy(states)).item())
+        tracker.add('avg_Q', torch.mean(policy(states)).item())
         tracker.add('abs_TD_error', torch.mean(td_error))
 
         if episode % eval_after == 0:
             if eval_func:
-                avg_reward = eval_func(policy).groupby(episode_col)[reward_col].sum().mean()
-                tracker.add('avg_reward', avg_reward)
+                eval_args = (policy,) if encoder is None else (encoder, policy)
+                for metric, value in eval_func(*eval_args).items():
+                    tracker.add(metric, value)
 
             print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
 

@@ -14,7 +14,7 @@ class CartPoleTeacherModel:
         return 1 if state.dot(self._w) > 0 else 0
 
 
-def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=False, seed=None):
+def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=False, eval=False, seed=None):
     """ Runs a model on the CartPole-v1 gym environment or, when model=None, generates
         off-policy samples to train model on. In case no model is provided, an epsilon
         greedy behavior policy is used based on a learned 4-parameter model.
@@ -76,6 +76,12 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=Fa
                        'state_3': [s[3] for s in states],
                        'action': actions,
                        'reward': rewards}).reset_index(drop=True)
+
+    # If we are evaluating, return average reward instead
+    if eval:
+        avg_total_reward = df.groupby('episode')['reward'].sum().mean()
+        return {'avg_total_reward': avg_total_reward}  # return as dict!
+
     return df
 
 
@@ -92,18 +98,17 @@ if __name__ == '__main__':
     # Fit model to dataset
     fit_double_dqn(experiment='cartpole_test',
                    policy=model,
-                   dataset=dataset,
-                   state_cols=['state_0', 'state_1', 'state_2', 'state_3'],
-                   action_col='action',
-                   reward_col='reward',
-                   episode_col='episode',
-                   timestep_col='timestep',
+                   states=dataset[['state_0', 'state_1', 'state_2', 'state_3']],
+                   actions=dataset['action'],
+                   rewards=dataset['reward'],
+                   episodes=dataset['episode'],
+                   timesteps=dataset['timestep'],
                    alpha=1e-4,
                    gamma=0.9,
                    tau=1e-3,
                    num_episodes=5000,
                    batch_size=8,
-                   eval_func=lambda m: cartpole(m, num_episodes=100, seed=3),  # Evaluate on cartpole simulator!
+                   eval_func=lambda m: cartpole(m, num_episodes=100, seed=3, eval=True),  # Evaluate on cartpole simulator!
                    eval_after=100,
                    scheduler_gamma=0.95,
                    step_scheduler_after=200,

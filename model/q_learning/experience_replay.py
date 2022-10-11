@@ -4,89 +4,18 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 
 
-class ExperienceReplay:
-    """ Implements a simple Experience Replay buffer which returns
-        episodes in the order they occur in the dataset.
-    """
-    def __init__(self, dataset, state_cols, action_col='action', reward_col='reward', episode_col='episode',
-                 timestep_col='timestep', return_history=False):
-        self._df = dataset.reset_index()
-        self._state_cols = state_cols
-        self._action_col = action_col
-        self._reward_col = reward_col
-        self._episode_col = episode_col
-        self._timestep_col = timestep_col
-
-        # Determines indices of non-terminal states in df
-        self._indices = self._non_terminal_indices(self._df)
-        self._buffer_size = len(self._indices)
-        self._return_history = return_history
-
-    def _non_terminal_indices(self, df):
-        # Extract indices of all non-terminal states
-        indices = []
-        for _, episode in df.groupby(self._episode_col):
-            indices += list(episode['index'].values[:-1])  # [:-1] ensures terminal states are not sampled
-        return indices
-
-    @staticmethod
-    def _consolidate_length(histories):
-        histories = [torch.Tensor(seq) for seq in histories]
-        return pad_sequence(histories, batch_first=True, padding_value=0.0)
-
-    def batches(self, N):
-        # Generator which yields batches of size N
-        for j in range(0, self._buffer_size, N):
-
-            batch_transitions = self._indices[j: j + N]
-            states, actions, rewards, next_states = [], [], [], []
-
-            for i in batch_transitions:
-
-                if self._return_history:
-                    # What episode does transition `i` belong to?
-                    ep = self._df.loc[i][self._episode_col]
-
-                    # Extract relevant history of transition `i` and next state
-                    episode = self._df[self._df[self._episode_col] == ep]
-                    history = episode[episode['index'] <= i + 1][self._state_cols].values
-                else:
-                    # Extract just current and next state
-                    history = self._df.loc[i: i + 1][self._state_cols].values
-
-                states.append(history[:-1])
-                actions.append(self._df.loc[i][self._action_col])
-                rewards.append(self._df.loc[i][self._reward_col])
-                next_states.append(history[1:])
-
-            # If return_histories, consolidate their lengths
-            if self._return_history:
-                states = self._consolidate_length(states)
-                next_states = self._consolidate_length(next_states)
-            else:
-                states = torch.Tensor(np.array(states))[:, 0]  # If no history, no need to keep track of temporal dimension
-                next_states = torch.Tensor(np.array(next_states))[:, 0]
-
-            # convert to torch Tensors
-            actions = torch.LongTensor(actions).unsqueeze(1)  # TODO: enable gpu devices!
-            rewards = torch.Tensor(rewards).unsqueeze(1)
-
-            yield states, actions, rewards, next_states
-
-
 class PrioritizedReplay:
-    """ Implements the Prioritized Experience Replay (PER) buffer
-        (Schaul et al., 2016) for off-policy RL training from log-data.
-        See: https://arxiv.org/pdf/1511.05952v3.pdf
+    """ Implements Prioritized Experience Replay (PER) (Schaul et al., 2016)
+        for off-policy RL training from log-data.
+        See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, dataset, state_cols, action_col='action', reward_col='reward', episode_col='episode',
-                 timestep_col='timestep', alpha=0.6, beta0=0.4, return_history=False):
-        self._df = dataset.reset_index()
-        self._state_cols = state_cols
-        self._action_col = action_col
-        self._reward_col = reward_col
-        self._episode_col = episode_col
-        self._timestep_col = timestep_col
+    def __init__(self, states, actions, rewards, episodes, timesteps, alpha=0.6, beta0=0.4, return_history=False):
+        # Create single DataFrame out of states, actions, rewards, etc.
+        self._df = pd.concat([states, actions, rewards, episodes, timesteps], axis=1)
+
+        # Assign canonical column names
+        self._state_cols = ['s%s' % i for i in range(states.shape[1])] # 's41' -> 42nd state-space feature
+        self._df.columns = self._state_cols + ['action', 'reward', 'episode', 'timestep']
 
         # Determines indices of non-terminal states in df
         self._indices = self._non_terminal_indices(self._df)
@@ -98,10 +27,11 @@ class PrioritizedReplay:
         self._beta0 = beta0
         self._return_history = return_history
 
-    def _non_terminal_indices(self, df):
+    @staticmethod
+    def _non_terminal_indices(df):
         # Extract indices of all non-terminal states
         indices = []
-        for _, episode in df.groupby(self._episode_col):
+        for _, episode in df.groupby('episode'):
             indices += list(episode.index.values[:-1])  # [:-1] ensures terminal states are not sampled
         return np.array(indices)
 
@@ -138,20 +68,16 @@ class PrioritizedReplay:
 
         for i in transitions:
 
+            # Extract states preceding transition `i` in episode + next state
             if self._return_history:
-                # What episode does transition `i` belong to?
-                ep = self._df.loc[i][self._episode_col]
-
-                # Extract relevant history of transition `i` and next state
-                episode = self._df[self._df[self._episode_col] == ep]
-                history = episode[episode['index'] <= i + 1][self._state_cols].values
+                ep = self._df.loc[i]['episode']
+                history = self._df[(self._df['episode'] == ep) & (self._df.index <= i + 1)][self._state_cols].values
             else:
-                # Extract just current and next state
-                history = self._df.loc[i: i + 1][self._state_cols].values
+                history = self._df.loc[i: i + 1][self._state_cols].values  # -> s_t:t+1
 
             states.append(history[:-1])
-            actions.append(self._df.loc[i][self._action_col])
-            rewards.append(self._df.loc[i][self._reward_col])
+            actions.append(int(self._df.loc[i]['action']))
+            rewards.append(self._df.loc[i]['reward'])
             next_states.append(history[1:])
 
         # If return_histories, consolidate their lengths
@@ -171,15 +97,21 @@ class PrioritizedReplay:
 
 
 if __name__ == '__main__':
-    dataset = pd.DataFrame({'episode': np.repeat(np.arange(10), 10),
-                            'timestep': np.tile(np.arange(10), 10),
-                            'state': np.random.random(100),
-                            'action': np.random.random(100),
-                            'reward': np.random.random(100)})
-    replay_buffer = PrioritizedExperienceReplay(dataset, return_history=True)
+    # Create fake dataset of 10 episodes, each of 10 timesteps. The agent
+    # observes 32-dim states and can take 25 actions
+    episodes = np.repeat(np.arange(10), 10)
+    timesteps = np.tile(np.arange(10), 10)
+    states = np.random.random((100, 32))
+    actions = np.random.randint(0, 25, 100)
+    rewards = np.random.random(100)
 
-    for i, w, transition in replay_buffer.sample(N=10):
-        print('Index: ', i)
-        print('Weight:', w)
-        print(transition)
-        print()
+    # Load into replay buffer
+    replay_buffer = PrioritizedReplay(states, actions, rewards, episodes, timesteps, return_history=True)
+
+    states, actions, rewards, next_states, transitions, weights = replay_buffer.sample(N=10)
+    print('states.shape:     ', states.shape)
+    print('actions.shape:    ', actions.shape)
+    print('rewards.shape:    ', rewards.shape)
+    print('next_states.shape:', next_states.shape)
+    print('transitions.shape:', transitions.shape)
+    print('weights.shape:    ', weights.shape)
