@@ -1,29 +1,7 @@
-import warnings
 import numpy as np
 import pandas as pd
-from sklearn.exceptions import ConvergenceWarning
 from sklearn.preprocessing import label_binarize
-from sklearn.linear_model import Lasso
-from sklearn.ensemble import RandomForestRegressor
-
-
-class LassoRegression:
-    def __init__(self, alpha=0.01):
-        self._model = Lasso(alpha=alpha, fit_intercept=True, random_state=1)
-
-    def fit(self, X, y):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=ConvergenceWarning)  # catch convergence warnings
-            self._model.fit(X, y)
-
-    def predict(self, X):
-        return self._model.predict(X)
-
-
-class RandomForest(LassoRegression):
-    def __init__(self):
-        super().__init__()
-        self._model = RandomForestRegressor(n_estimators=150, max_depth=7, random_state=1)
+from estimators import *
 
 
 class FittedQIteration:
@@ -95,6 +73,7 @@ class FittedQIteration:
     def _fit(self):
         # Initial fit of estimator setting Q(s, a) = r
         self._estimator.fit(self._states_actions, self._rewards)
+        prev_q = 0.0
 
         # Separate next-state-next-action part from Q-table
         next_states_actions = self._Q_table.values[:, :-2]
@@ -108,17 +87,20 @@ class FittedQIteration:
             q_values = self._estimator.predict(next_states_actions)
             self._Q_table['policy_q'] = q_values
 
-            if self._verbose:
-                print('It %s/%s: Average Q-value = %.3f' % (it + 1, self._max_iters, np.mean(q_values)))
-
             # Compute 'next state'-value under greedy policy: max_a'[Q(s', a')]
-            next_state_value = self._Q_table.groupby('next_state_id', sort=False)['policy_q'].max()
+            next_state_value = self._Q_table.groupby('next_state_id', sort=False)['policy_q'].max().values
 
             # Bootstrap Q-estimate
             y = self._rewards + self._gamma * (next_state_value * to_terminal)
 
+            if self._verbose:
+                avg_q = np.mean(q_values)
+                avg_loss = np.mean(np.absolute(prev_q - y))
+                print('It %s/%s: Mean Q-value = %.3f  MAE = %.3f' % (it + 1, self._max_iters, avg_q, avg_loss))
+
             # Refit estimator
             self._estimator.fit(self._states_actions, y)
+            prev_q = y
 
     def Q(self, states, actions):
         # Create state-action table with dummy-encoded actions
@@ -126,7 +108,7 @@ class FittedQIteration:
         return self._estimator.predict(states_actions)
 
     def V(self, states):
-        # Create Q-table with all states and possible actions ('0'-'25')
+        # Create Q-table with all combinations of states and possible actions ('0'-'25')
         Q_table = self._create_Q_table(states, self._action_space, next_states_only=False)
 
         # Predict Q(s', a') using estimator (limit to state-action part of Q-table)
@@ -141,11 +123,11 @@ if __name__ == '__main__':
     training_data = pd.read_csv('../datasets/mimic-iii/roggeveen/mimic-iii_train.csv')
 
     # Unpack training dataset into states, actions, rewards and episode IDs
-    no_state_cols = ['icustay_id', 'timestep', 'max_vp_shifted', 'total_iv_fluid_shifted', 'reward', 'action', 'state_sirs']
+    meta_data = ['icustay_id', 'timestep', 'max_vp_shifted', 'total_iv_fluid_shifted', 'reward', 'action', 'state_sirs']
     actions = training_data['action'].values.astype(np.uint8)
     rewards = training_data['reward'].values
     episodes = training_data['icustay_id'].values.astype(np.uint64)
-    states = training_data[[c for c in training_data.columns if c not in no_state_cols]].values
+    states = training_data[[c for c in training_data.columns if c not in meta_data]].values
 
     # Identify start states s0 and action space
     is_start_state = np.insert(episodes[1:] != episodes[:-1], 0, True)
@@ -155,7 +137,7 @@ if __name__ == '__main__':
     behavior_policy = behavior_df[[str(i) for i in range(25)]].values
 
     # Fit FQI
-    FQI = FittedQIteration(states, actions, rewards, episodes, method='rf', verbose=True)
+    FQI = FittedQIteration(states, actions, rewards, episodes, method='rf', verbose=True, gamma=0.9)
 
     # Predict V(s) an Q(s, a)
     print('Mean Q(s0, a0):', np.mean(FQI.Q(states[is_start_state], actions[is_start_state])))
