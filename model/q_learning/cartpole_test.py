@@ -80,7 +80,7 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=Fa
     # If we are evaluating, return average reward instead
     if eval:
         avg_total_reward = df.groupby('episode')['reward'].sum().mean()
-        return {'avg_total_reward': avg_total_reward}  # return as dict!
+        return {'avg_total_reward': avg_total_reward}  # return as dict to allow more than one metric to be recorded!
 
     return df
 

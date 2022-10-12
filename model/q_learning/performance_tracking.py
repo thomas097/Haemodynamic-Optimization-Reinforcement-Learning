@@ -24,13 +24,20 @@ class PerformanceTracker:
             value = value.item()
 
         self._metrics[metric_name].append(value)
-        self.save()  # to make sure we won't lose progress on abort!
+        self.save_metrics()  # to make sure we won't lose progress on abort!
 
     def print_stats(self):
         return ', '.join(['%s = %.3f' % (m, self._metrics[m][-1]) for m in self._names])
 
-    def save(self):
+    def save_metrics(self):
         # Store metrics as .npy
         for metric_name, values in self._metrics.items():
             np.savetxt(os.path.join(self._full_path, metric_name + '.npy'), np.array(values))
 
+    def save_model_pt(self, model, model_name):
+        # If model directory has not yet been created
+        if not os.path.exists(self._full_path + '/model'):
+            os.mkdir(self._full_path + '/model')
+
+        # Save model's state_dict
+        torch.save(model.state_dict(), self._full_path + '/model/state_dict_%s.pt' % model_name)

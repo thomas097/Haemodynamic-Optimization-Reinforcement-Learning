@@ -1,3 +1,4 @@
+import os
 import copy
 import torch
 import numpy as np
@@ -110,9 +111,9 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, times
     #####################
 
     # Enable training mode
-    policy.train(True)
+    policy.train()
     if encoder:
-        encoder.train(True)
+        encoder.train()
 
     for episode in tqdm(range(num_episodes)):
 
@@ -170,9 +171,14 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, times
 
             print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
 
-        tracker.save()
+        tracker.save_metrics()
 
     # Disable training mode
-    policy.train(False)
+    policy.eval()
     if encoder:
-        encoder.train(False)
+        encoder.eval()
+
+    # Save encoder and policy to `model` directory
+    tracker.save_model_pt(policy, 'policy')
+    if encoder:
+        tracker.save_model_pt(encoder, 'encoder')

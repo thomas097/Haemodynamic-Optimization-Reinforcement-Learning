@@ -73,7 +73,7 @@ class PrioritizedReplay:
                 ep = self._df.loc[i]['episode']
                 history = self._df[(self._df['episode'] == ep) & (self._df.index <= i + 1)][self._state_cols].values
             else:
-                history = self._df.loc[i: i + 1][self._state_cols].values  # -> s_t:t+1
+                history = self._df.loc[i: i + 1][self._state_cols].values  # -> history + next state!
 
             states.append(history[:-1])
             actions.append(int(self._df.loc[i]['action']))
