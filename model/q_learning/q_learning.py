@@ -118,7 +118,7 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, times
     for episode in tqdm(range(num_episodes)):
 
         # Sample (s, a, r, s') transition from PER
-        states, actions, rewards, next_states, _, weights = replay_buffer.sample(N=batch_size)
+        states, actions, rewards, next_states, transitions, weights = replay_buffer.sample(N=batch_size)
 
         # Encode states if encoder provided
         if encoder:
@@ -151,9 +151,9 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, times
         if episode % step_scheduler_after == 0 and episode > 0:
             scheduler.step()
 
-        # TD-error
-        td_error = torch.abs(q_target - q_pred)
-        # TODO: update importance weights using td_error
+        # Update replay priority by TD-error
+        td_error = torch.abs(q_target - q_pred).detach()
+        replay_buffer.update_priority(transitions, td_error)
 
         ############################
         #   Performance Tracking   #
@@ -178,7 +178,7 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, times
     if encoder:
         encoder.eval()
 
-    # Save encoder and policy to `model` directory
+    # Save policy (and encoder) to `model` directory
     tracker.save_model_pt(policy, 'policy')
     if encoder:
         tracker.save_model_pt(encoder, 'encoder')

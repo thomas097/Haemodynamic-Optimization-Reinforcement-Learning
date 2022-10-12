@@ -44,9 +44,9 @@ class PrioritizedReplay:
         w = (self._buffer_size * selection_probs[idx]) ** -self._beta0
         return w / np.max(w)
 
-    def update(self, indices, td_errors):
-        idx = [np.where(self._indices == i)[0][0] for i in indices]  # Indices in full index
-        self._TD_errors[idx] = np.absolute(td_errors)
+    def update_priority(self, indices, td_errors):
+        idx = [np.where(self._indices == i)[0][0] for i in indices]  # Equiv. to self._indices.index(i)
+        self._TD_errors[idx] = np.absolute(td_errors).flatten()
 
     @staticmethod
     def _consolidate_length(histories):
