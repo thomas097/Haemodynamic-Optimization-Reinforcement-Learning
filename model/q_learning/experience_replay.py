@@ -35,18 +35,20 @@ class PrioritizedReplay:
             indices += list(episode.index.values[:-1])  # [:-1] ensures terminal states are not sampled
         return np.array(indices)
 
+    def _to_index(self, transitions):
+        # Returns indices of `idx` in full `self._indices` index
+        return [np.where(self._indices == t)[0][0] for t in transitions]
+
     def _selection_probs(self):
         z = self._TD_errors ** self._alpha
         return z / np.sum(z)
 
-    def _importance_weights(self, chosen_indices, selection_probs):
-        idx = [np.where(self._indices == i)[0][0] for i in chosen_indices]  # Indices in full index
-        w = (self._buffer_size * selection_probs[idx]) ** -self._beta0
+    def _importance_weights(self, transitions, selection_probs):
+        w = (self._buffer_size * selection_probs[self._to_index(transitions)]) ** -self._beta0
         return w / np.max(w)
 
-    def update_priority(self, indices, td_errors):
-        idx = [np.where(self._indices == i)[0][0] for i in indices]  # Equiv. to self._indices.index(i)
-        self._TD_errors[idx] = np.absolute(td_errors).flatten()
+    def update_priority(self, transitions, td_errors):
+        self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors).flatten()
 
     @staticmethod
     def _consolidate_length(histories):
