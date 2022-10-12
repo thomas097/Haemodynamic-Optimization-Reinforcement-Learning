@@ -51,7 +51,7 @@ class ItemWiseTransformer(torch.nn.Module):
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-    def forward(self, items, time_steps, add_cls=True):
+    def forward(self, items, time_steps, add_cls=True, return_last=True):
         # Add optional [CLS] token to sequences
         if add_cls:
             items = np.array([list(seq) + ['[CLS]'] for seq in items])
@@ -64,12 +64,13 @@ class ItemWiseTransformer(torch.nn.Module):
         # Compute sum of item embedding and positional embedding
         item_embedding = self._item_encoding(items)
         pos_embedding = torch.flip(self._pos_encoding(time_steps), dims=[1])  # reverse timesteps to make T-1 the anchor
-        embedding = item_embedding + pos_embedding
+        inputs = item_embedding + pos_embedding
 
         for i, block in enumerate(self._blocks):
-            embedding = block(embedding, mask=mask if i in self._mask_layers else None)
+            inputs = block(inputs, mask=mask if i in self._mask_layers else None)
 
-        return embedding
+        # Optionally return only last step
+        return inputs[:, -1] if return_last else inputs
 
 
 if __name__ == '__main__':
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     vocab = ['a', 'b', 'c', 'd', 'e']
     item_dataset = (np.random.choice(vocab, size=(32, 1000)),
                     torch.cumsum(torch.rand((32, 1000)), dim=1))
-    regular_dataset = (torch.randn(32, 1000, 5),)
+    regular_dataset = (torch.randn(32, 100, 5),)
 
     # Models
     regular = SelfAttentionModel(in_features=5, d_model=32)
@@ -87,7 +88,7 @@ if __name__ == '__main__':
     def timing_test(model, inputs, N=1):
         time1 = time_ns()
         for i in range(N):
-            model(*inputs)
+            out = model(*inputs)
         time2 = time_ns()
         return (time2 - time1) / (1e9 * N)
 
