@@ -44,7 +44,7 @@ class SelfAttention(torch.nn.Module):
         return torch.bmm(torch.softmax(attn_matrix, dim=2), V)
 
 
-class MultiHeadAttention(torch.nn.Module):
+class MultiHeadSelfAttention(torch.nn.Module):
     """ Implementation of Multi-Head Self-Attention (Vaswani et al., 2017)
     """
     def __init__(self, in_channels, out_channels, k=4):
@@ -65,10 +65,10 @@ class MultiHeadAttention(torch.nn.Module):
         return self._linear(hidden)
 
 
-class AttentionBlock(torch.nn.Module):
+class SelfAttentionBlock(torch.nn.Module):
     def __init__(self, d_model, k=4):
         super().__init__()
-        self._attn = MultiHeadAttention(d_model, d_model, k=k)
+        self._attn = MultiHeadSelfAttention(d_model, d_model, k=k)
         self._layer_norm = torch.nn.LayerNorm(d_model)
 
         # Use GPU if available
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     X = torch.randn((1, 1700, 32))  # -> (batch_size, seq_length, num_features)
     print('In:', X.shape)
 
-    attn = AttentionBlock(d_model=32, k=2)
+    attn = SelfAttentionBlock(d_model=32, k=2)
 
     # Timing test
     time1 = time_ns()
