@@ -88,7 +88,6 @@ class CKConv(torch.nn.Module):
         # Update max_len when length of training example exceeds max_len seen previously
         if self.training and x.shape[1] > self._train_max_len.item():
             self._train_max_len = torch.as_tensor(x.shape[1])
-
             self._rel_positions = torch.linspace(-1, 1, x.shape[1]).unsqueeze(0).unsqueeze(0)
             # -> (batch_size=1, num_channels=1, seq_length)
 
@@ -116,29 +115,49 @@ class CKConv(torch.nn.Module):
         return x, kernel
 
 
-if __name__ == '__main__':
-    seq_length = 1000
-    in_channels = 8
-    out_channels = 16
-    batch_size = 64
-    N = 100
+class CKBlock(torch.nn.Module):
+    """ CKConv Block with layer normalization and residual connections
+        (Bai et. al., 2017)
+    """
+    def __init__(self, num_channels, hidden_channels=None, kernel_dims=32, use_bias=True):
+        super().__init__()
+        # Use hidden == out if hidden_channels are not provided
+        hidden_channels = num_channels if hidden_channels is None else hidden_channels
 
+        self._ckconv1 = CKConv(num_channels, hidden_channels, kernel_dims, use_bias=use_bias)
+        self._ckconv2 = CKConv(hidden_channels, num_channels, kernel_dims, use_bias=use_bias)
+        self._layer_norm1 = torch.nn.LayerNorm(hidden_channels)
+        self._layer_norm2 = torch.nn.LayerNorm(num_channels)
+        self._leaky_relu = torch.nn.LeakyReLU()
+
+        # Use GPU when available
+        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self.to(self._device)
+
+    def forward(self, x):
+        h1 = self._leaky_relu(self._layer_norm1(self._ckconv1(x)))
+        h2 = self._leaky_relu(self._layer_norm2(self._ckconv2(h1)))
+        return self._leaky_relu(x + h2)
+
+
+if __name__ == '__main__':
     # Create toy dataset of shape x=(batch_size, seq_len, in_channels)
     # with ~20% observations missing (NaNs)
-    x = torch.randn((batch_size, seq_length, in_channels))
-    mask = torch.rand((batch_size, seq_length, in_channels)) > 0.5
-    x = x * mask
-    print('In: x =', x.shape)
+    x = torch.randn((64, 1000, 16))
+    mask = torch.rand((64, 1000, 16)) > 0.2
+    dataset = x * mask
+    print('In: ', dataset.shape)
 
     # Create stack of CKConv layers
-    conv = CKConv(in_channels=in_channels, out_channels=out_channels)
+    conv = CKBlock(num_channels=16, hidden_channels=32)
     conv.train(True)
 
-    # Time operation
-    time1 = time.time_ns()
-    for _ in range(N):
-        out = conv(x)
-    time_elapsed = (time.time_ns() - time1) / (1e9 * N)
+    # Sanity check: time forward pass
+    def timing_test(model, inputs, N=10):
+        time1 = time.time_ns()
+        for _ in range(N):
+            model(inputs)
+        time_elapsed = (time.time_ns() - time1) / (1e9 * N)
+        return time_elapsed
 
-    print('Time elapsed:', time_elapsed, '\n')
-    print('Out:', out.shape)
+    print('Time elapsed:', timing_test(conv, dataset))
