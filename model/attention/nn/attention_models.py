@@ -26,11 +26,9 @@ class SelfAttentionModel(torch.nn.Module):
         indices = np.arange(x.shape[1])[np.newaxis]
         pos_embedding = torch.flip(self._pos_encoding(indices), dims=[1])  # reverse timesteps to make T-1 the anchor
 
-        # Input embedding to d_model
-        input_embedding = self._input_encoding(x)
-
-        # Feed input and positional encoding through network
-        y = self._model(input_embedding + pos_embedding)
+        # Run model on input with positional embedding
+        inputs = self._input_encoding(x) + pos_embedding
+        y = self._model(inputs)
 
         # Optionally return only last step
         return y[:, -1] if return_last else y
@@ -65,7 +63,7 @@ class ItemWiseTransformer(torch.nn.Module):
 
         # Compute sum of item embedding and positional embedding
         item_embedding = self._item_encoding(items)
-        pos_embedding = self._pos_encoding(time_steps)
+        pos_embedding = torch.flip(self._pos_encoding(time_steps), dims=[1])  # reverse timesteps to make T-1 the anchor
         embedding = item_embedding + pos_embedding
 
         for i, block in enumerate(self._blocks):
