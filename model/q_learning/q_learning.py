@@ -67,17 +67,17 @@ class DQN(torch.nn.Module):
 
     def action_probs(self, states):
         """ Return probability of action given state as given by softmax """
-        states = torch.Tensor(states)
+        states = torch.Tensor(states).to(self._device)
         with torch.no_grad():
             actions = torch.softmax(self(states), dim=1)
-        return actions.detach().numpy()
+        return actions.cpu().detach().numpy()
 
     def sample(self, states):
         """ Sample action given state """
-        states = torch.Tensor(states)
+        states = torch.Tensor(states).to(self._device)
         with torch.no_grad():
             actions = torch.argmax(self(states), dim=1)
-        return actions.detach().numpy()
+        return actions.cpu().detach().numpy()
 
 
 def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, timesteps, num_episodes=1, alpha=1e-3,

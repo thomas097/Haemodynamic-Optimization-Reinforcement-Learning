@@ -27,6 +27,9 @@ class PrioritizedReplay:
         self._beta0 = beta0
         self._return_history = return_history
 
+        # Move to GPU if available
+        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
     @staticmethod
     def _non_terminal_indices(df):
         # Extract indices of all non-terminal states
@@ -48,7 +51,7 @@ class PrioritizedReplay:
         return w / np.max(w)
 
     def update_priority(self, transitions, td_errors):
-        self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors).flatten()
+        self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors.cpu()).flatten()
 
     @staticmethod
     def _consolidate_length(histories):
@@ -90,10 +93,12 @@ class PrioritizedReplay:
             states = torch.Tensor(np.array(states))[:, 0]  # If no history, no need to keep track of temporal dimension
             next_states = torch.Tensor(np.array(next_states))[:, 0]
 
-        # convert to torch Tensors
-        actions = torch.LongTensor(actions).unsqueeze(1)  # TODO: enable gpu devices!
-        rewards = torch.Tensor(rewards).unsqueeze(1)
-        imp_weights = torch.Tensor(imp_weights).unsqueeze(1)
+        # Convert to torch Tensors and enable GPU devices
+        actions = torch.LongTensor(actions).to(self._device).unsqueeze(1)
+        rewards = torch.Tensor(rewards).to(self._device).unsqueeze(1)
+        imp_weights = torch.Tensor(imp_weights).to(self._device).unsqueeze(1)
+        states = states.to(self._device)
+        next_states = next_states.to(self._device)
 
         return states, actions, rewards, next_states, transitions, imp_weights
 
