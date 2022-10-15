@@ -24,7 +24,6 @@ class PerformanceTracker:
             value = value.item()
 
         self._metrics[metric_name].append(value)
-        self.save_metrics()  # to make sure we won't lose progress on abort!
 
     def print_stats(self):
         return ', '.join(['%s = %.3f' % (m, self._metrics[m][-1]) for m in self._names])

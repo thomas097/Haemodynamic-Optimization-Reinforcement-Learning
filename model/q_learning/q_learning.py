@@ -169,9 +169,10 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, times
                 for metric, value in eval_func(*eval_args).items():
                     tracker.add(metric, value)
 
-            print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
+            # Save performance values intermittently
+            tracker.save_metrics()
 
-        tracker.save_metrics()
+            print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
 
     # Disable training mode
     policy.eval()

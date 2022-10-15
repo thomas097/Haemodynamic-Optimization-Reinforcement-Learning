@@ -98,4 +98,3 @@ class PrioritizedReplay:
         imp_weights = torch.Tensor(imp_weights).unsqueeze(1).to(self._device)
 
         return states, actions, rewards, next_states, transitions, imp_weights
-    
