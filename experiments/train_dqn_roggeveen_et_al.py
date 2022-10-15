@@ -19,15 +19,11 @@ class OPECallback:
     def __init__(self, behavior_policy_file, valid_states):
         # Load behavior policy that was used to sample validation set
         self._estimator = WIS(behavior_policy_file)
-
-        # Evaluate on GPU if available
-        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self._states = torch.Tensor(valid_states.values).to(self._device)
+        self._states = valid_states.values
 
     def __call__(self, policy):
         action_probs = policy.action_probs(self._states)
-        wis = self._estimator(action_probs)
-        return {'wis': wis}
+        return {'wis': self._estimator(action_probs)}
 
 
 if __name__ == '__main__':
@@ -40,12 +36,19 @@ if __name__ == '__main__':
                      'glucose', 'running_total_urine_output', 'total_urine_output', 'running_total_iv_fluid']
 
     # Training and validation data
-    train_df = pd.read_csv('preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
-    valid_df = pd.read_csv('preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
+    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
+    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
     print('train.size = %s  valid.size = %s' % (len(train_df), len(valid_df)))
 
+    # HACKKKKK
+    with_treatment = train_df.groupby('icustay_id').apply(lambda x: x['action'].max() > 0)
+    print('Admissions with treatments:', with_treatment.sum())
+    admissions_with_treatments = list(with_treatment.index[with_treatment])
+    #admissions_with_treatments += list(with_treatment.index[~with_treatment])[:2000]  # Add some without treatment
+    train_df = train_df[train_df['icustay_id'].isin(admissions_with_treatments)]
+
     # Evaluation callback using OPE
-    ope_callback = OPECallback(behavior_policy_file='ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
+    ope_callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
                                valid_states=valid_df[STATE_COLUMNS])
 
     # Optimize DQN model
