@@ -6,7 +6,6 @@ Descr.:   Performs the training of a Dueling Double DQN model as described in
 Date:     01-10-2022
 """
 
-import torch
 import pandas as pd
 from q_learning import DQN, fit_double_dqn
 from importance_sampling import WIS
@@ -28,31 +27,24 @@ class OPECallback:
 
 if __name__ == '__main__':
     # State-space as described in (Roggeveen et al., 2021).
-    STATE_COLUMNS = ['max_vp', 'total_iv_fluid', 'sirs_score', 'sofa_score', 'weight', 'ventilator', 'height',
-                     'age', 'gender', 'heart_rate', 'temp', 'mean_bp', 'dias_bp', 'sys_bp', 'resp_rate', 'spo2',
-                     'natrium', 'chloride', 'kalium', 'trombo', 'leu', 'anion_gap', 'aptt', 'art_ph', 'asat',
-                     'alat', 'bicarbonaat', 'art_be', 'ion_ca', 'lactate', 'paco2', 'pao2', 'shock_index', 'hb',
-                     'bilirubin', 'creatinine', 'inr', 'ureum', 'albumin', 'magnesium', 'calcium', 'pf_ratio',
-                     'glucose', 'running_total_urine_output', 'total_urine_output', 'running_total_iv_fluid']
+    STATE_COLUMNS = ['max_vp', 'total_iv_fluid', 'sirs_score', 'sofa_score', 'weight', 'ventilator', 'height', 'age',
+                     'gender', 'heart_rate', 'temp', 'mean_bp', 'dias_bp', 'sys_bp', 'resp_rate', 'spo2', 'natrium',
+                     'chloride', 'kalium', 'trombo', 'leu', 'anion_gap', 'aptt', 'art_ph', 'asat', 'fio2', 'alat',
+                     'bicarbonaat', 'art_be', 'ion_ca', 'lactate', 'paco2', 'pao2', 'shock_index', 'hb', 'bilirubin',
+                     'creatinine', 'inr', 'ureum', 'albumin', 'magnesium', 'calcium', 'pf_ratio', 'glucose',
+                     'running_total_urine_output', 'total_urine_output', 'running_total_iv_fluid']
 
     # Training and validation data
     train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
     valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
     print('train.size = %s  valid.size = %s' % (len(train_df), len(valid_df)))
 
-    # HACKKKKK
-    with_treatment = train_df.groupby('icustay_id').apply(lambda x: x['action'].max() > 0)
-    print('Admissions with treatments:', with_treatment.sum())
-    admissions_with_treatments = list(with_treatment.index[with_treatment])
-    #admissions_with_treatments += list(with_treatment.index[~with_treatment])[:2000]  # Add some without treatment
-    train_df = train_df[train_df['icustay_id'].isin(admissions_with_treatments)]
-
     # Evaluation callback using OPE
     ope_callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
                                valid_states=valid_df[STATE_COLUMNS])
 
-    # Optimize DQN model
-    dqn_model = DQN(state_dim=len(STATE_COLUMNS), num_actions=25, hidden_dims=(128, 128))
+    # Optimize DQN model (1-4 correspond to no IV but vasopressor!)
+    dqn_model = DQN(state_dim=len(STATE_COLUMNS), num_actions=25, hidden_dims=(128, 128), disallow=[1, 2, 3, 4])
 
     fit_double_dqn(experiment='roggeveen_experiment',
                    policy=dqn_model,
@@ -72,4 +64,4 @@ if __name__ == '__main__':
                    eval_after=500,
                    scheduler_gamma=0.95,
                    step_scheduler_after=2000,
-                   reward_clipping=15)
+                   min_max_reward=(-15, 15))
