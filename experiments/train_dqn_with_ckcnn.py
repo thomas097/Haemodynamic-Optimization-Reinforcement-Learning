@@ -11,6 +11,7 @@ import pandas as pd
 
 from q_learning import DQN, fit_double_dqn
 from ckcnn import CKCNN
+from baseline_encoders import *
 from importance_sampling import WIS
 
 
@@ -25,7 +26,7 @@ class OPECallback:
 
     def _generate_histories(self):
         for i, row in self._valid_df.iterrows():
-            # Extract history
+            # Extract history s_0:t and s'
             ep = row['icustay_id']
             history = self._valid_df[(self._valid_df['icustay_id'] == ep) & (self._valid_df.index <= i + 1)]
 
@@ -81,6 +82,6 @@ if __name__ == '__main__':
                    num_episodes=4000,
                    batch_size=32,
                    eval_func=ope_callback,
-                   eval_after=42,
+                   eval_after=100,
                    scheduler_gamma=0.95,
                    step_scheduler_after=200)

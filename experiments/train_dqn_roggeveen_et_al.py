@@ -19,7 +19,10 @@ class OPECallback:
     def __init__(self, behavior_policy_file, valid_states):
         # Load behavior policy that was used to sample validation set
         self._estimator = WIS(behavior_policy_file)
-        self._states = torch.Tensor(valid_states.values)
+
+        # Evaluate on GPU if available
+        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self._states = torch.Tensor(valid_states.values).to(self._device)
 
     def __call__(self, policy):
         action_probs = policy.action_probs(self._states)
@@ -37,12 +40,12 @@ if __name__ == '__main__':
                      'glucose', 'running_total_urine_output', 'total_urine_output', 'running_total_iv_fluid']
 
     # Training and validation data
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen/mimic-iii_valid.csv')
+    train_df = pd.read_csv('preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
+    valid_df = pd.read_csv('preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
     print('train.size = %s  valid.size = %s' % (len(train_df), len(valid_df)))
 
     # Evaluation callback using OPE
-    ope_callback = OPECallback(behavior_policy_file='../ope/physician_policy/mimic-iii_valid_behavior_policy.csv',
+    ope_callback = OPECallback(behavior_policy_file='ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
                                valid_states=valid_df[STATE_COLUMNS])
 
     # Optimize DQN model
@@ -57,11 +60,13 @@ if __name__ == '__main__':
                    timesteps=train_df.timestep,
                    alpha=1e-4,
                    gamma=0.9,
-                   tau=1e-2,
-                   num_episodes=4000,
-                   batch_size=8,
+                   lamda=5,
+                   tau=1e-4,
+                   num_episodes=10000,
+                   batch_size=32,
+                   replay_params=(0.6, 0.9),
                    eval_func=ope_callback,
-                   eval_after=100,
+                   eval_after=500,
                    scheduler_gamma=0.95,
-                   step_scheduler_after=200,
+                   step_scheduler_after=2000,
                    reward_clipping=15)
