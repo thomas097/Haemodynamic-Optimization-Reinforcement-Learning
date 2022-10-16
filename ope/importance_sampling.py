@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from sklearn.preprocessing import label_binarize
 
 
 class IS:
@@ -51,7 +51,7 @@ class IS:
         # Compute gamma as a function of t
         gamma = np.power(self._gamma, np.arange(self._timesteps - 1))[np.newaxis]
 
-        # Drop NaN reward at terminal states
+        # Drop NaN rewards at terminal states
         rewards = self._rewards[:, :-1]
 
         return np.mean(np.sum(gamma * ratio * rewards, axis=1))
@@ -94,64 +94,64 @@ class WIS(IS):
         return np.sum(gamma * w * rewards)
 
 
-class GroupwiseWIS(IS):
-    """ Implementation of the Groupwise Weighted Importance Sampling (WIS)
-        estimator which accounts for confounding factors such as `disease severity`
-        known to affect actions AND outcome variables (e.g. `base mortality rate`).
-
-        GroupwiseWIS groups trajectories by some factor (e.g. `sirs_score`) and computes
-        an average over the group-wise WIS estimates (weighted by their support).
-    """
-    def __init__(self, behavior_policy_file, dataset_file, group_by='sirs_score', gamma=1.0):
-        super().__init__(behavior_policy_file, gamma)
-        # Assign indices to each group in `group_by`
-        groups = pd.read_csv(dataset_file, usecols=[group_by])[group_by].values
-        self._group_indices = [np.array(groups == i) for i in sorted(set(groups))]
-
-        # Compute contribution of each group
-        self._support = np.array([np.sum(idx) for idx in self._group_indices]) / groups.shape[0]
-
-        # Overwrite: rewards (do not drop last terminal state yet!)
-        self._rewards = pd.read_csv(behavior_policy_file, usecols=['reward'])['reward'].values
-
-    def __call__(self, pi_e, return_groups=False):
-        """ Computes the WIS estimate of V^πe.
-
-            pi_e:       Table of action probs acc. to πe with shape (num_states, num_actions)
-
-            Returns:    Estimate of mean V^πe
-        """
-        # To collect WIS scores for each group
-        wis_scores = np.zeros(len(self._group_indices), dtype=np.float64)
-
-        # Consider groups one by one
-        for i, idx in enumerate(self._group_indices):
-            # Extract action probabilities acc. to πe (πb) w.r.t. chosen actions
-            pi_b = self._pi_b
-            action_probs_e = np.take_along_axis(pi_e[idx], self._actions[idx], axis=1).reshape(-1, self._timesteps)
-            action_probs_b = np.take_along_axis(pi_b[idx], self._actions[idx], axis=1).reshape(-1, self._timesteps)
-
-            # Create table of rewards
-            rewards = self._rewards[idx].reshape(-1, self._timesteps)
-
-            # Drop terminal time steps (NaN rewards received in these states)
-            action_probs_e = action_probs_e[:, :-1]
-            action_probs_b = action_probs_b[:, :-1]
-            rewards = rewards[:, :-1]
-
-            # Compute cumulative importance ratio
-            ratio = np.cumprod(action_probs_e / action_probs_b, axis=1)
-            w = ratio / ratio.sum(axis=0, keepdims=True)
-
-            # Compute within-group WIS
-            gamma = np.power(self._gamma, np.arange(self._timesteps - 1))[np.newaxis]
-            wis_scores[i] = np.sum(gamma * w * rewards)
-
-        if return_groups:
-            return wis_scores
-
-        # Average WIS scores by their support
-        return wis_scores.dot(self._support)
+# class GroupwiseWIS(IS):
+#     """ Implementation of the Groupwise Weighted Importance Sampling (WIS)
+#         estimator which accounts for confounding factors such as `disease severity`
+#         known to affect actions AND outcome variables (e.g. `base mortality rate`).
+#
+#         GroupwiseWIS groups trajectories by some factor (e.g. `sirs_score`) and computes
+#         an average over the group-wise WIS estimates (weighted by their support).
+#     """
+#     def __init__(self, behavior_policy_file, dataset_file, group_by='sirs_score', gamma=1.0):
+#         super().__init__(behavior_policy_file, gamma)
+#         # Assign indices to each group in `group_by`
+#         groups = pd.read_csv(dataset_file, usecols=[group_by])[group_by].values
+#         self._group_indices = [np.array(groups == i) for i in sorted(set(groups))]
+#
+#         # Compute contribution of each group
+#         self._support = np.array([np.sum(idx) for idx in self._group_indices]) / groups.shape[0]
+#
+#         # Overwrite: rewards (do not drop last terminal state yet!)
+#         self._rewards = pd.read_csv(behavior_policy_file, usecols=['reward'])['reward'].values
+#
+#     def __call__(self, pi_e, return_groups=False):
+#         """ Computes the WIS estimate of V^πe.
+#
+#             pi_e:       Table of action probs acc. to πe with shape (num_states, num_actions)
+#
+#             Returns:    Estimate of mean V^πe
+#         """
+#         # To collect WIS scores for each group
+#         wis_scores = np.zeros(len(self._group_indices), dtype=np.float64)
+#
+#         # Consider groups one by one
+#         for i, idx in enumerate(self._group_indices):
+#             # Extract action probabilities acc. to πe (πb) w.r.t. chosen actions
+#             pi_b = self._pi_b
+#             action_probs_e = np.take_along_axis(pi_e[idx], self._actions[idx], axis=1).reshape(-1, self._timesteps)
+#             action_probs_b = np.take_along_axis(pi_b[idx], self._actions[idx], axis=1).reshape(-1, self._timesteps)
+#
+#             # Create table of rewards
+#             rewards = self._rewards[idx].reshape(-1, self._timesteps)
+#
+#             # Drop terminal time steps (NaN rewards received in these states)
+#             action_probs_e = action_probs_e[:, :-1]
+#             action_probs_b = action_probs_b[:, :-1]
+#             rewards = rewards[:, :-1]
+#
+#             # Compute cumulative importance ratio
+#             ratio = np.cumprod(action_probs_e / action_probs_b, axis=1)
+#             w = ratio / ratio.sum(axis=0, keepdims=True)
+#
+#             # Compute within-group WIS
+#             gamma = np.power(self._gamma, np.arange(self._timesteps - 1))[np.newaxis]
+#             wis_scores[i] = np.sum(gamma * w * rewards)
+#
+#         if return_groups:
+#             return wis_scores
+#
+#         # Average WIS scores by their support
+#         return wis_scores.dot(self._support)
 
 
 if __name__ == '__main__':
@@ -160,15 +160,21 @@ if __name__ == '__main__':
     behavior_policy = behavior_df[[str(i) for i in range(25)]].values  # assume 25 actions
 
     # Random policy
-    random_policy = np.random.uniform(0.0, 1, behavior_policy.shape)
+    random_policy = label_binarize(np.random.randint(0, 24, behavior_policy.shape[0]), classes=np.arange(25))
+    random_policy = random_policy.astype(np.float32) + np.random.uniform(0, 0.05, random_policy.shape) # Add noise
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
 
     # Perfect policy
     def get_perfect_action(x):
-        action1 = x * 0
-        action1['1'] = 1
-        return x if x['reward'].values[-2] == 15 else action1  # just behavior actions if R=15, else action 1
+        alt_action = x * 0
+        alt_action['2'] = 1
+        return x if x['reward'].values[-2] == 15 else alt_action  # just behavior actions if R=15, else impossible action 2
     perfect_policy = behavior_df.groupby('episode').apply(get_perfect_action)[[str(i) for i in range(25)]].values
+
+    # Bad policy (high likelihood of action 1 which is not possible)
+    bad_policy = np.ones(behavior_policy.shape)
+    bad_policy[:, 1] = 50
+    bad_policy = bad_policy / np.sum(bad_policy, axis=1, keepdims=True)
 
     # Zero policy (inaction)
     zero_policy = np.zeros(behavior_policy.shape)
@@ -176,19 +182,21 @@ if __name__ == '__main__':
 
     is_ = IS('physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv')
     wis = WIS('physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv')
-    gwis = GroupwiseWIS('physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
-                        '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
+    # gwis = GroupwiseWIS('physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
+    #                     '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
 
     print('IS:')
     print('behavior: ', is_(behavior_policy))
-    print('perfect:  ', is_(perfect_policy))
     print('random:   ', is_(random_policy))
+    print('perfect:  ', is_(perfect_policy))
+    print('bad:      ', is_(bad_policy))
     print('zero:     ', is_(zero_policy))
 
     print('\nWIS:')
     print('behavior: ', wis(behavior_policy))
-    print('perfect:  ', wis(perfect_policy))
     print('random:   ', wis(random_policy))
+    print('perfect:  ', wis(perfect_policy))
+    print('bad:      ', wis(bad_policy))
     print('zero:     ', wis(zero_policy))
 
     # print('\nGWIS:')
