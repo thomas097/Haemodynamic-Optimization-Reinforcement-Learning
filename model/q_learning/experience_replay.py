@@ -4,15 +4,51 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 
 
+class EvaluationReplay:
+    """ Implements a simple experience replay buffer which sequentially
+        iterates over a dataset returning batches of states.
+    """
+    def __init__(self, states, episodes, return_history=False):
+        # Move states, action and rewards to GPU if available
+        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self._states = torch.Tensor(states.values).to(self._device)
+        self._episodes = np.array(episodes)
+        self._indices = np.arange(self._episodes.shape[0])
+        self._buffer_size = self._episodes.shape[0]
+        self._return_history = return_history
+
+    @staticmethod
+    def _consolidate_length(histories):
+        return pad_sequence(histories, batch_first=True, padding_value=0.0)
+
+    def iterate(self, batch_size=128):
+        for j in range(0, self._buffer_size, batch_size):
+            # Batch of transitions
+            transitions = self._indices[j:j + batch_size]
+
+            states = []
+            for i in transitions:
+                # Extract states up to and including transition `i` in the same episode
+                if self._return_history:
+                    states.append(self._states[(self._episodes == self._episodes[i]) & (self._indices <= i)])
+                else:
+                    states.append(self._states[i])  # Current state `i` only
+
+            # If return_histories, consolidate their lengths
+            if self._return_history:
+                yield self._consolidate_length(states)
+            else:
+                yield torch.stack(states, dim=0)[:, 0]  # If no history, no need to keep track of temporal dim 2
+
+
 class PrioritizedReplay:
     """ Implements Prioritized Experience Replay (PER) (Schaul et al., 2016)
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, states, actions, rewards, episodes, timesteps, alpha=0.6, beta0=0.4, return_history=False):
+    def __init__(self, states, actions, rewards, episodes, alpha=0.6, beta0=0.4, return_history=False):
         # Create single DataFrame with episode and timestep information.
-        self._df = pd.concat([episodes, timesteps], axis=1).reset_index(drop=True)
-        self._df.columns = ['episode', 'timestep']
+        self._df = pd.DataFrame({'episode': episodes}).reset_index(drop=True)
 
         # Move states, action and rewards to GPU if available
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
