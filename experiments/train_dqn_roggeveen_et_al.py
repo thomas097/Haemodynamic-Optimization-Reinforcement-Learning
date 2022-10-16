@@ -17,12 +17,12 @@ class OPECallback:
     """
     def __init__(self, behavior_policy_file, valid_states):
         # Load behavior policy that was used to sample validation set
-        self._estimator = WIS(behavior_policy_file)
+        self._wis = WIS(behavior_policy_file)
         self._states = valid_states.values
 
     def __call__(self, policy):
         action_probs = policy.action_probs(self._states)
-        return {'wis': self._estimator(action_probs)}
+        return {'wis': self._wis(action_probs)}
 
 
 if __name__ == '__main__':
@@ -52,12 +52,11 @@ if __name__ == '__main__':
                    actions=train_df.action,
                    rewards=train_df.reward,
                    episodes=train_df.icustay_id,
-                   timesteps=train_df.timestep,
                    alpha=1e-4,
                    gamma=0.9,
                    lamda=5,
                    tau=1e-4,
-                   num_episodes=10000,
+                   num_episodes=100000,
                    batch_size=32,
                    replay_params=(0.6, 0.9),
                    eval_func=ope_callback,
