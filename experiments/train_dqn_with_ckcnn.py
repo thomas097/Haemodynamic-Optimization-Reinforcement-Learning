@@ -36,7 +36,7 @@ class OPECallback:
 
 if __name__ == '__main__':
     # Define columns marking state- and action-space
-    STATE_COLUMNS = ['max_vp', 'total_iv_fluid', 'sirs_score', 'sofa_score', 'weight', 'ventilator', 'height', 'age',
+    STATE_COLUMNS = ['max_vaso', 'total_iv_fluid', 'sirs_score', 'sofa_score', 'weight', 'ventilator', 'height', 'age',
                      'gender', 'heart_rate', 'temp', 'mean_bp', 'dias_bp', 'sys_bp', 'resp_rate', 'spo2', 'natrium',
                      'chloride', 'kalium', 'trombo', 'leu', 'anion_gap', 'aptt', 'art_ph', 'asat', 'fio2', 'alat',
                      'bicarbonaat', 'art_be', 'ion_ca', 'lactate', 'paco2', 'pao2', 'shock_index', 'hb', 'bilirubin',
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     # create Dueling DQN controller
     dqn_model = DQN(state_dim=64, hidden_dims=(128, 128), num_actions=25)
 
-    # Evaluation callback using OPE
+    # evaluation callback using OPE
     ope_callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
                                states=valid_df[STATE_COLUMNS], episodes=valid_df['icustay_id'])
 
@@ -69,9 +69,9 @@ if __name__ == '__main__':
                    alpha=1e-4,
                    gamma=0.9,
                    tau=1e-3,
-                   num_episodes=4000,
+                   num_episodes=10000,
                    batch_size=32,
                    eval_func=ope_callback,
-                   eval_after=100,
+                   eval_after=1000,
                    scheduler_gamma=0.95,
                    step_scheduler_after=200)
