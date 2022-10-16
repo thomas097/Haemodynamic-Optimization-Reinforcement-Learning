@@ -65,5 +65,5 @@ if __name__ == '__main__':
                    eval_func=callback,
                    eval_after=500,
                    scheduler_gamma=0.95,
-                   step_scheduler_after=3000,
+                   step_scheduler_after=2000,
                    min_max_reward=(-15, 15))

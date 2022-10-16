@@ -8,12 +8,12 @@ Date:     01-10-2022
 
 import pandas as pd
 
-from tqdm import tqdm
 from q_learning import DQN, fit_double_dqn
 from experience_replay import EvaluationReplay
 from ckcnn import CKCNN
 from baseline_encoders import *
 from importance_sampling import WIS
+from physician import Physician
 
 
 class OPECallback:
@@ -23,6 +23,7 @@ class OPECallback:
     def __init__(self, behavior_policy_file, states, episodes):
         # Load behavior policy that was used to sample validation set
         self._wis = WIS(behavior_policy_file)
+        self._phys = Physician(behavior_policy_file)
         self._replay = EvaluationReplay(states, episodes, return_history=True)
 
     def __call__(self, encoder, policy):
@@ -31,7 +32,8 @@ class OPECallback:
 
         # Compute action probs from state vectors
         action_probs = policy.action_probs(encoded_states)
-        return {'wis': self._wis(action_probs)}
+        return {'wis': self._wis(action_probs),
+                'phys_entropy': self._phys(action_probs)}
 
 
 if __name__ == '__main__':
@@ -55,8 +57,8 @@ if __name__ == '__main__':
     dqn_model = DQN(state_dim=64, hidden_dims=(128, 128), num_actions=25)
 
     # evaluation callback using OPE
-    ope_callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
-                               states=valid_df[STATE_COLUMNS], episodes=valid_df['icustay_id'])
+    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
+                           states=valid_df[STATE_COLUMNS], episodes=valid_df['icustay_id'])
 
     # fit model
     fit_double_dqn(experiment='ckcnn_experiment',
@@ -71,7 +73,7 @@ if __name__ == '__main__':
                    tau=1e-3,
                    num_episodes=10000,
                    batch_size=32,
-                   eval_func=ope_callback,
-                   eval_after=1000,
+                   eval_func=callback,
+                   eval_after=500,
                    scheduler_gamma=0.95,
                    step_scheduler_after=200)
