@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
-from loss_functions import weighted_Huber_loss, reward_regularizer
+from loss_functions import *
 
 INF = 1e-32
 
@@ -149,11 +149,12 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, num_e
 
             # Compute target Q value
             next_model_action = torch.argmax(policy(next_states), dim=1, keepdim=True)
-            q_target = rewards + gamma * next_target_state_value.gather(dim=1, index=next_model_action) * reward_mask
+            q_target = rewards + gamma * reward_mask * next_target_state_value.gather(dim=1, index=next_model_action)
 
         # Loss + regularization
         loss = weighted_Huber_loss(q_pred, q_target, weights)
         loss += lamda * reward_regularizer(q_pred, min_max_reward[1])
+        #loss = physician_regularizer(policy(states), actions)
 
         # Policy update
         optimizer.zero_grad()
@@ -180,6 +181,7 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, num_e
         tracker.add('loss', loss.item())
         tracker.add('avg_Q', torch.mean(policy(states)).item())
         tracker.add('abs_TD_error', torch.mean(td_error))
+        tracker.add('w_imp', torch.mean(weights))
 
         if episode % eval_after == 0 and episode > 0:
             if eval_func:

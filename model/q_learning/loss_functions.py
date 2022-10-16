@@ -10,6 +10,11 @@ def weighted_Huber_loss(x, y, weights, delta=1.0):
     return torch.mean(weights * loss)
 
 
-def reward_regularizer(q_pred, max_reward):
-    """ Punishes policy for overestimating Q-values above max_reward """
-    return torch.clamp(torch.abs(q_pred) - max_reward, min=0).sum().double()
+def reward_regularizer(q_pred, limit):
+    """ Punishes policy for overestimating Q-values above or below limit """
+    return torch.clamp(torch.abs(q_pred) - limit, min=0).sum().double()
+
+
+def physician_regularizer(q, actions):
+    loss = torch.nn.CrossEntropyLoss()
+    return loss(q, actions[:, 0])

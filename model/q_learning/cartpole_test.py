@@ -30,6 +30,9 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=Fa
 
     episode, timestep, states, actions, rewards = [], [], [], [], []
 
+    if model is not None:
+        model.train(False)
+
     for ep in range(num_episodes):
 
         state = env.reset()
@@ -67,6 +70,9 @@ def cartpole(model=None, num_episodes=10, max_steps=500, epsilon=0.15, render=Fa
 
     env.close()
 
+    if model is not None:
+        model.train(True)
+
     # Convert histories to DataFrame
     df = pd.DataFrame({'episode': episode,
                        'timestep': timestep,
@@ -102,7 +108,6 @@ if __name__ == '__main__':
                    actions=dataset['action'],
                    rewards=dataset['reward'],
                    episodes=dataset['episode'],
-                   timesteps=dataset['timestep'],
                    alpha=1e-4,
                    gamma=0.9,
                    tau=1e-3,
@@ -112,7 +117,7 @@ if __name__ == '__main__':
                    eval_after=100,
                    scheduler_gamma=0.95,
                    step_scheduler_after=200,
-                   reward_clipping=100)
+                   min_max_reward=(-1000, 1000))
 
     # Show off model in simulator
     cartpole(model=model, num_episodes=100, render=True)

@@ -46,7 +46,7 @@ class PrioritizedReplay:
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, states, actions, rewards, episodes, alpha=0.6, beta0=0.4, return_history=False):
+    def __init__(self, states, actions, rewards, episodes, alpha=0.6, beta0=0.4, eps=1e-2, return_history=False):
         # Create single DataFrame with episode and timestep information.
         self._df = pd.DataFrame({'episode': episodes}).reset_index(drop=True)
 
@@ -64,6 +64,7 @@ class PrioritizedReplay:
 
         self._alpha = alpha  # alpha = 0.0 -> to uniform sampling
         self._beta0 = beta0
+        self._eps = eps
         self._return_history = return_history
 
     @staticmethod
@@ -79,7 +80,7 @@ class PrioritizedReplay:
         return [np.where(self._indices == t)[0][0] for t in transitions]
 
     def _selection_probs(self):
-        z = self._TD_errors ** self._alpha
+        z = (self._TD_errors + self._eps) ** self._alpha
         return z / np.sum(z)
 
     def _importance_weights(self, transitions, selection_probs):
