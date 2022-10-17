@@ -1,5 +1,6 @@
 import os
 import torch
+import pickle
 import numpy as np
 from collections import defaultdict
 from datetime import datetime
@@ -34,9 +35,10 @@ class PerformanceTracker:
             np.savetxt(os.path.join(self._full_path, metric_name + '.npy'), np.array(values))
 
     def save_model_pt(self, model, model_name):
-        # If model directory has not yet been created
-        if not os.path.exists(self._full_path + '/model'):
-            os.mkdir(self._full_path + '/model')
+        # Write model to file using pickle
+        pkl_path = os.path.join(self._full_path, model_name + '.pkl')
+        with open(pkl_path, 'wb') as outfile:
+            pickle.dump(model, outfile)
 
-        # Save model's state_dict
-        torch.save(model.state_dict(), self._full_path + '/model/state_dict_%s.pt' % model_name)
+        # Write state_dict to file
+        torch.save(model.state_dict(), self._full_path + '/state_dict_%s.pt' % model_name)

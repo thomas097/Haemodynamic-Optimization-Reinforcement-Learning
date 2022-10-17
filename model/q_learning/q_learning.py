@@ -8,7 +8,7 @@ from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
 from loss_functions import *
 
-INF = 1e-32
+INF = 1e5
 
 
 class DuelingLayer(torch.nn.Module):
@@ -59,6 +59,7 @@ class DQN(torch.nn.Module):
         # Mask used to set Q(*, a) of disallowed actions to -inf
         self._mask = torch.zeros((1, num_actions)).to(self._device)
         self._mask[:, list(disallow)] = 1
+        self._inf = INF
 
     @staticmethod
     def _init_xavier_uniform(layer):
@@ -73,7 +74,7 @@ class DQN(torch.nn.Module):
         q = self._head(h)
 
         # Mask out disallowed actions!
-        return (1 - self._mask) * q + self._mask * -INF
+        return (1 - self._mask) * q + self._mask * -self._inf
 
     def action_probs(self, states):
         """ Return probability of action given state as given by softmax """
@@ -92,7 +93,8 @@ class DQN(torch.nn.Module):
 
 def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, num_episodes=1, alpha=1e-3, gamma=0.99,
                    tau=1e-2, lamda=1e-3, eval_func=None, eval_after=100, batch_size=32, replay_params=(0.0, 0.4),
-                   scheduler_gamma=0.9, step_scheduler_after=100, encoder=None, freeze_encoder=False, min_max_reward=(-1, 1)):
+                   scheduler_gamma=0.9, step_scheduler_after=100, encoder=None, freeze_encoder=False, min_max_reward=(-1, 1),
+                   lamda_physician=0.0):
 
     # Upload dataset to experience buffer
     replay_buffer = PrioritizedReplay(states, actions, rewards, episodes, alpha=replay_params[0],
@@ -137,7 +139,8 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, num_e
             next_states = encoder(next_states)
 
         # Compute Q-estimate
-        q_pred = policy(states).gather(dim=1, index=actions)
+        q_values = policy(states)
+        q_pred = q_values.gather(dim=1, index=actions)
 
         # Bootstrap Q-target
         with torch.no_grad():
@@ -153,8 +156,8 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, num_e
 
         # Loss + regularization
         loss = weighted_Huber_loss(q_pred, q_target, weights)
-        loss += lamda * reward_regularizer(q_pred, min_max_reward[1])
-        #loss = physician_regularizer(policy(states), actions)
+        loss += lamda * reward_regularizer(q_pred, min_max_reward[1])       # Punishes model for exceeding min/max reward
+        loss += lamda_physician * physician_regularizer(q_values, actions)  # Forces model to be closer to physician policy
 
         # Policy update
         optimizer.zero_grad()
@@ -179,11 +182,11 @@ def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, num_e
         ############################
 
         tracker.add('loss', loss.item())
-        tracker.add('avg_Q', torch.mean(policy(states)).item())
+        tracker.add('avg_Q', torch.mean(q_values[q_values > -1e5]).item())  # Drop impossible actions 1-4 with -inf Q-values
         tracker.add('abs_TD_error', torch.mean(td_error))
         tracker.add('w_imp', torch.mean(weights))
 
-        if episode % eval_after == 0 and episode > 0:
+        if episode % eval_after == 0:
             if eval_func:
                 eval_args = (policy,) if encoder is None else (encoder, policy)
                 for metric, value in eval_func(*eval_args).items():

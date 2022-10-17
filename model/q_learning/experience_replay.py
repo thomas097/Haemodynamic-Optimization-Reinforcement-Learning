@@ -38,7 +38,7 @@ class EvaluationReplay:
             if self._return_history:
                 yield self._consolidate_length(states)
             else:
-                yield torch.stack(states, dim=0)[:, 0]  # If no history, no need to keep track of temporal dim 2
+                yield torch.stack(states, dim=0)  # If no history, no need to keep track of temporal dim 2
 
 
 class PrioritizedReplay:
