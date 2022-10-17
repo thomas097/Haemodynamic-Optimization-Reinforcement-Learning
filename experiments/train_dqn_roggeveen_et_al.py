@@ -66,4 +66,5 @@ if __name__ == '__main__':
                    eval_after=500,
                    scheduler_gamma=0.95,
                    step_scheduler_after=2000,
-                   min_max_reward=(-15, 15))
+                   min_max_reward=(-15, 15),
+                   lamda_physician=1)

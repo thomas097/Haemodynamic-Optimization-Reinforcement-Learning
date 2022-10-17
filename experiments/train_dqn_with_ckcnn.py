@@ -8,6 +8,7 @@ Date:     01-10-2022
 
 import pandas as pd
 
+import torch
 from q_learning import DQN, fit_double_dqn
 from experience_replay import EvaluationReplay
 from ckcnn import CKCNN
