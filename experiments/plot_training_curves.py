@@ -7,21 +7,24 @@ sns.set_theme(style="darkgrid")
 
 
 def main(path, metrics, num_episodes):
-    plt.figure(figsize=(12, 8))
-    for i, metric in enumerate(metrics):
-        plt.subplot(len(metrics), 1, i + 1)
+    plt.figure(figsize=(12, 4))
+    for i, metric, title in enumerate(metrics):
+        plt.subplot(1, len(metrics), i + 1)
         y = np.loadtxt(os.path.join(path, metric + '.npy'))
         x = np.linspace(0, num_episodes, y.shape[0])  # to account for `eval_after` parameter
 
         plt.plot(x, y)
-        plt.title(metric)
+        plt.xlabel('Episode')
+        plt.ylabel(title)
+        plt.title(title)
 
     plt.show()
 
 
 if __name__ == '__main__':
-    PATH = 'roggeveen_experiment_2022-10-17_10-41-45'
-    METRICS = ['phys_entropy', 'wis']
+    PATH = 'roggeveen_experiment_2022-10-17_10-59-09'
+    METRICS = [('phys_entropy', 'Entropy w.r.t physician actions'),
+               ('wis', 'WIS')]
     NUM_EPISODES = 100000
 
     main(PATH, METRICS, NUM_EPISODES)

@@ -49,7 +49,7 @@ if __name__ == '__main__':
     # Optimize DQN model (1-4 correspond to no IV but vasopressor!)
     dqn_model = DQN(state_dim=len(STATE_COLUMNS), num_actions=25, hidden_dims=(128, 128), disallow=[1, 2, 3, 4])
 
-    fit_double_dqn(experiment='roggeveen_experiment',
+    fit_double_dqn(experiment='results/roggeveen_experiment',
                    policy=dqn_model,
                    states=train_df[STATE_COLUMNS],
                    actions=train_df.action,
@@ -63,8 +63,8 @@ if __name__ == '__main__':
                    batch_size=32,
                    replay_params=(0.4, 0.6),  # was (0.6, 0.9)
                    eval_func=callback,
-                   eval_after=500,
+                   eval_after=5000,
                    scheduler_gamma=0.95,
                    step_scheduler_after=2000,
                    min_max_reward=(-15, 15),
-                   lamda_physician=1)
+                   lamda_physician=0.0)

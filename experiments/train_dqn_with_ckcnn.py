@@ -44,7 +44,7 @@ if __name__ == '__main__':
                      'chloride', 'kalium', 'trombo', 'leu', 'anion_gap', 'aptt', 'art_ph', 'asat', 'fio2', 'alat',
                      'bicarbonaat', 'art_be', 'ion_ca', 'lactate', 'paco2', 'pao2', 'shock_index', 'hb', 'bilirubin',
                      'creatinine', 'inr', 'ureum', 'albumin', 'magnesium', 'calcium', 'pf_ratio', 'glucose',
-                     'total_urine_output']
+                     'running_total_urine_output', 'total_urine_output', 'running_total_iv_fluid']
 
     # Training and validation data
     train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
@@ -62,7 +62,7 @@ if __name__ == '__main__':
                            states=valid_df[STATE_COLUMNS], episodes=valid_df['icustay_id'])
 
     # fit model
-    fit_double_dqn(experiment='ckcnn_experiment',
+    fit_double_dqn(experiment='results/ckcnn_experiment',
                    policy=dqn_model,
                    encoder=encoder_model,
                    states=train_df[STATE_COLUMNS],
