@@ -8,12 +8,16 @@ class CKCNN(torch.nn.Module):
         super().__init__()
         self._linear = torch.nn.Linear(in_channels, out_channels)
 
-        blocks = [CKBlock(out_channels, out_channels) for _ in range(num_blocks)]
-        self._stack = torch.nn.Sequential(*blocks)
+        self._layers = [CKBlock(out_channels, out_channels) for _ in range(num_blocks)]
+        self._stack = torch.nn.Sequential(*self._layers)
 
         # Use GPU when available
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.to(self._device)
+
+    @property
+    def kernels(self):
+        return [layer.kernel for layer in self._layers]
 
     def forward(self, x, return_last=True):
         self._linear(x)
@@ -24,7 +28,7 @@ class CKCNN(torch.nn.Module):
 if __name__ == '__main__':
     X = torch.randn(64, 10, 32)
 
-    model = CKCNN(32, 64, num_blocks=1)
+    model = CKCNN(in_channels=32, out_channels=64, num_blocks=1)
 
     # Sanity check: time forward pass
     def timing_test(model, x, N=10):

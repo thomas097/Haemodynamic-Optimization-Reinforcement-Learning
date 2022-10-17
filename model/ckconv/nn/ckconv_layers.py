@@ -84,11 +84,15 @@ class CKConv(torch.nn.Module):
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.to(self._device)
 
+    @property
+    def kernel(self):
+        return self._kernel(self._rel_positions).view(self._out_channels, self._in_channels, -1).cpu().detach().numpy()
+
     def forward(self, x):
         # Update max_len when length of training example exceeds max_len seen previously
         if self.training and x.shape[1] > self._train_max_len.item():
             self._train_max_len = torch.as_tensor(x.shape[1])
-            self._rel_positions = torch.linspace(-1, 1, x.shape[1]).unsqueeze(0).unsqueeze(0)
+            self._rel_positions = torch.linspace(-1, 1, x.shape[1]).unsqueeze(0).unsqueeze(0).to(self._device)
             # -> (batch_size=1, num_channels=1, seq_length)
 
         weights = self._kernel(self._rel_positions).view(self._out_channels, self._in_channels, -1)
