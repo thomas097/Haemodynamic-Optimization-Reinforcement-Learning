@@ -30,5 +30,7 @@ class Physician:
 
             Returns:    Estimate of mean V^πe
         """
+        # Set impossible actions with pi_e values of zero to one (prevent log(0))
+        pi_e[pi_e < 1e-6] = 1
         ln = -np.sum(self._pi_b * np.log(pi_e), axis=1)
         return np.mean(ln)
