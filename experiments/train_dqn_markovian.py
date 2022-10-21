@@ -8,7 +8,7 @@ Date:     01-10-2022
 
 import pandas as pd
 from q_learning import DQN, fit_double_dqn
-from importance_sampling import WIS
+from importance_sampling import WeightedIS
 from physician import Physician
 
 
@@ -18,7 +18,7 @@ class OPECallback:
     """
     def __init__(self, behavior_policy_file, valid_data):
         # Load behavior policy that was used to sample validation set
-        self._wis = WIS(behavior_policy_file)
+        self._wis = WeightedIS(behavior_policy_file)
         self._phys = Physician(behavior_policy_file)
         self._states = valid_data.filter(regex='x\d+').values
 
@@ -32,7 +32,7 @@ if __name__ == '__main__':
     # Training and validation data
     train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
     valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
-    print('train.size = %s  valid.size = %s' % (len(train_df), len(valid_df)))
+    print('train.size = %s  valid.size = %s' % (len(train_df) // 18, len(valid_df) // 18))
 
     # Evaluation callback using OPE
     callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
@@ -43,10 +43,7 @@ if __name__ == '__main__':
 
     fit_double_dqn(experiment='results/roggeveen_experiment',
                    policy=dqn_model,
-                   states=train_df.filter(regex='x\d+'),
-                   actions=train_df.action,
-                   rewards=train_df.reward,
-                   episodes=train_df.episode,  # i.e. icustay_id
+                   dataset=train_df,
                    alpha=1e-4,
                    gamma=0.9,
                    lamda=5,
