@@ -26,9 +26,10 @@ class StateConcatenation(torch.nn.Module):
 
 
 class CausalCNN(torch.nn.Module):
-    """ Implementation of a Causal Convolutional Network (CausalCNN) based
-        on dilated causal convolutions (implemented by `CausalConv1d()`).
-        See https://arxiv.org/pdf/1609.03499v2.pdf for details.
+    """
+    Implementation of a Causal Convolutional Network (`CausalCNN`) based
+    on dilated causal convolutions (implemented by `CausalConv1d`).
+    See https://arxiv.org/pdf/1609.03499v2.pdf for details.
     """
     class CausalConv1d(torch.nn.Module):
         def __init__(self, in_channels, out_channels, kernel_size, dilation, include_current=True):
@@ -36,7 +37,7 @@ class CausalCNN(torch.nn.Module):
             self._conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation)
             self._relu = torch.nn.LeakyReLU()
 
-            # For details, see https://jmtomczak.github.io/blog/2/2_ARM.html
+            # For details see https://jmtomczak.github.io/blog/2/2_ARM.html
             self._include_current = include_current
             self._left_padding = (kernel_size - 1) * dilation + 1 * (not include_current)
 
@@ -70,37 +71,42 @@ class CausalCNN(torch.nn.Module):
 
 
 class LSTM(torch.nn.Module):
-    """ Implementation of an Long-Short Term Memory (LSTM) network as
-        used by (Hausknecht et al., 2017) for POMDPs.
-        See https://arxiv.org/pdf/1507.06527.pdf for details.
+    """
+    Implementation of a Long-Short Term Memory (LSTM) network
+    (Hochreiter et al., 1997) as used by (Hausknecht et al., 2017).
+    See https://arxiv.org/pdf/1507.06527.pdf for details.
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super().__init__()
         self._model = torch.nn.LSTM(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                     bias=True, batch_first=True)
+        self._h0 = torch.nn.Parameter(torch.randn((1, hidden_dims)))
 
     def forward(self, history, return_last=True):
-        h, _ = self._model(history)
+        h, _ = self._model(history, self._h0)
         return h[:, -1] if return_last else h
 
 
 class GRU(torch.nn.Module):
-    """ Implementation of a vanilla GRU
+    """
+    Implementation of a Gated Recurrent Unit (GRU)
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super().__init__()
         self._model = torch.nn.GRU(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                    bias=True, batch_first=True)
+        self._h0 = torch.nn.Parameter(torch.randn((1, hidden_dims)))
 
     def forward(self, history, return_last=True):
-        h, _ = self._model(history)
+        h, _ = self._model(history, self._h0)
         return h[:, -1] if return_last else h
 
 
 class EncoderDecoderLSTM(torch.nn.Module):
-    """ Feeds histories through an LSTM encoder-decoder network as
-        proposed by (Peng et al., 2019).
-        See https://github.com/xuefeng7/Improving-Sepsis-Treatment-Strategies for details
+    """
+    Feeds histories through an LSTM encoder-decoder network as
+    proposed by (Peng et al., 2019).
+    See https://github.com/xuefeng7/Improving-Sepsis-Treatment-Strategies for details
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super().__init__()
@@ -120,8 +126,9 @@ class EncoderDecoderLSTM(torch.nn.Module):
 
 
 class GRUdT(torch.nn.Module):
-    """ Implementation of the GRU-∆t baseline of (Kidger et al. 2020). For details, see:
-        https://proceedings.neurips.cc/paper/2020/file/4a5876b450b45371f6cfe5047ac8cd45-Paper.pdf
+    """
+    Implementation of the GRU-∆t baseline of (Kidger et al. 2020). For details, see:
+    https://proceedings.neurips.cc/paper/2020/file/4a5876b450b45371f6cfe5047ac8cd45-Paper.pdf
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super().__init__()
@@ -162,7 +169,7 @@ if __name__ == '__main__':
     print('GRU:         ', gru(X).shape)
 
     encoder_decoder = EncoderDecoderLSTM(NUM_FEATURES, HIDDEN_DIMS)
-    print('AutoEncoder: ', encoder_decoder(X).shape)
+    print('Enc-Decoder: ', encoder_decoder(X).shape)
 
     gru_dt = GRUdT(NUM_FEATURES, HIDDEN_DIMS)
     timesteps = torch.cumsum(torch.rand(BATCH_SIZE, SEQ_LENGTH, 1), dim=1)  # (batch_size, seq_length, num_features=1)
