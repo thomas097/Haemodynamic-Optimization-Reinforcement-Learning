@@ -76,14 +76,17 @@ class LSTM(torch.nn.Module):
     (Hochreiter et al., 1997) as used by (Hausknecht et al., 2017).
     See https://arxiv.org/pdf/1507.06527.pdf for details.
     """
-    def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
+    def __init__(self, state_dim=46, hidden_dims=128, num_layers=1, batch_size=32):
         super().__init__()
         self._model = torch.nn.LSTM(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                     bias=True, batch_first=True)
-        self._h0 = torch.nn.Parameter(torch.randn((1, hidden_dims)))
+        self._h0 = torch.nn.Parameter(torch.randn((num_layers, 1, hidden_dims)))
+        self._c0 = torch.nn.Parameter(torch.randn((num_layers, 1, hidden_dims)))
 
     def forward(self, history, return_last=True):
-        h, _ = self._model(history, self._h0)
+        h0 = self._h0.repeat(1, history.shape[0], 1)
+        c0 = self._c0.repeat(1, history.shape[0], 1)
+        h, _ = self._model(history, (h0, c0))
         return h[:, -1] if return_last else h
 
 
@@ -95,10 +98,11 @@ class GRU(torch.nn.Module):
         super().__init__()
         self._model = torch.nn.GRU(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                    bias=True, batch_first=True)
-        self._h0 = torch.nn.Parameter(torch.randn((1, hidden_dims)))
+        self._h0 = torch.nn.Parameter(torch.randn((num_layers, 1, hidden_dims)))
 
     def forward(self, history, return_last=True):
-        h, _ = self._model(history, self._h0)
+        h0 = self._h0.repeat(1, history.shape[0], 1)
+        h, _ = self._model(history, h0)
         return h[:, -1] if return_last else h
 
 
