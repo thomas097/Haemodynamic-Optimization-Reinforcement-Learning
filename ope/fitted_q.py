@@ -39,7 +39,7 @@ class FittedQEvaluation:
         Policy Evaluation (OPE). For details, see:
         http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
     """
-    def __init__(self, training_file, validation_file=None, num_actions=25, gamma=0.9, lrate=1e-2, initial_iters=500, warm_iters=500, reg=1e-2):
+    def __init__(self, training_file, validation_file=None, num_actions=25, gamma=1.0, lrate=1e-2, initial_iters=500, warm_iters=500, reg=1e-2):
         # Unpack training data file as FQEDataset object holding states, actions, rewards, etc.
         self._train = self._unpack_training_file(training_file)
 
@@ -56,6 +56,10 @@ class FittedQEvaluation:
         self._criterion = torch.nn.MSELoss()
         self._optimizer = torch.optim.SGD(self._estimator.parameters(), lr=lrate, weight_decay=reg)
         self._fitted = False
+
+    @property
+    def fitted(self):
+        return self._fitted
 
     @staticmethod
     def _unpack_training_file(training_file):
@@ -107,10 +111,8 @@ class FittedQEvaluation:
         reward_mask = (self._train.rewards == 0).float()
 
         # Warm start -- continue training from last estimator
-        if not self._fitted or self._warm_iters < 0:  # Not fitted or no warm start
-            iters = self._initial_iters
-        else:
-            iters = self._warm_iters
+        use_initial_lrate = not self._fitted or self._warm_iters < 0
+        iters = self._initial_iters if use_initial_lrate else self._warm_iters
 
         # Perform policy iteration
         with tqdm(range(iters)) as pbar:
@@ -172,8 +174,8 @@ class FittedQIteration(FittedQEvaluation):
     """ Implementation of the Fitted Q-Iteration (FQI) estimator for Off-policy
         Policy Evaluation (OPE). For details, see: https://arxiv.org/pdf/1807.01066.pdf
     """
-    def __init__(self, *args):
-        super().__init__(*args)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def fit(self, *_):  # -> policy unused
         """
@@ -184,10 +186,8 @@ class FittedQIteration(FittedQEvaluation):
         reward_mask = (self._train.rewards == 0).float()
 
         # Warm start -- continue training from last estimator
-        if not self._fitted or self._warm_iters < 0:  # Not fitted or no warm start
-            iters = self._initial_iters
-        else:
-            iters = self._warm_iters
+        use_initial_lrate = not self._fitted or self._warm_iters < 0
+        iters = self._initial_iters if use_initial_lrate else self._warm_iters
 
         # Perform policy iteration
         with tqdm(range(iters)) as pbar:

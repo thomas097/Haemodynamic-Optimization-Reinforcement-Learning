@@ -97,7 +97,7 @@ class WeightedIS(IS):
 if __name__ == '__main__':
     # Behavior policy
     behavior_df = pd.read_csv('physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv')
-    behavior_policy = behavior_df[[str(i) for i in range(25)]].values  # assume 25 actions
+    behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
 
     # Random policy
     random_policy = label_binarize(np.random.randint(0, 24, behavior_policy.shape[0]), classes=np.arange(25))

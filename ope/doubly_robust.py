@@ -7,8 +7,8 @@ from fitted_q import FittedQEvaluation, FittedQIteration
 
 
 class WeightedDoublyRobust:
-    def __init__(self, behavior_policy_file, mdp_training_file, mdp_validation_file=None, gamma=0.9, lrate=1e-2,
-                 initial_iters=500, warm_iters=100, method='fqe'):
+    def __init__(self, behavior_policy_file, mdp_training_file, mdp_validation_file=None, gamma=1.0, lrate=1e-2,
+                 initial_iters=1000, warm_iters=100, method='fqe'):
         """ Implementation of the Weighted Doubly Robust (WDR) estimator for OPE. We use a
             Weighted Importance Sampling estimator for the IS part and we use a Fitted Q-
             Evaluation (FQE) or a Fitted Q-Iteration (FQI) estimator for the DM part.
@@ -27,22 +27,17 @@ class WeightedDoublyRobust:
         self.actions = self._weighted_is.actions
         self.gamma = gamma
 
-        # Define covariate estimation method (FQI/FQE)
-        self._method = method
-        if self._method == 'fqi':
-            estimator = FittedQIteration
-        elif self._method == 'fqe':
-            estimator = FittedQEvaluation
-        else:
-            raise Exception('Estimator %s not recognized' % estimation_type)
-
         # If no validation set is given, assume training set
         mdp_validation_file = mdp_validation_file if mdp_validation_file is not None else mdp_training_file
 
-        # Init DM estimator
-        self._fitted_estimator = estimator(mdp_training_file, mdp_validation_file, gamma=gamma, lrate=lrate,
-                                           initial_iters=initial_iters, warm_iters=warm_iters)
-        self._fitted = False
+        # Define covariate estimation method (FQI/FQE)
+        self._method = method
+        if self._method == 'fqi':
+            self._estimator = FittedQIteration(mdp_training_file, mdp_validation_file, gamma=gamma, lrate=lrate, initial_iters=initial_iters, warm_iters=warm_iters)
+        elif self._method == 'fqe':
+            self._estimator = FittedQEvaluation(mdp_training_file, mdp_validation_file, gamma=gamma, lrate=lrate, initial_iters=initial_iters, warm_iters=warm_iters)
+        else:
+            raise Exception('Estimator %s not recognized' % estimation_type)
 
     def _to_table(self, arr):
         return np.nan_to_num(arr.reshape(-1, self.timesteps), nan=0.0)  # Replace NaNs in reward table
@@ -51,11 +46,10 @@ class WeightedDoublyRobust:
         """ (Re)fits FQE/FQI estimator on the training set given action probabilities
             over training states. Note, if FQI is used, `train_pi_e` will not be used.
         """
-        if self._method == 'fqi' and not self._fitted:
-            self._fitted_estimator.fit()  # Remark: Only needs to be fitted once as independent form policy!
+        if self._method == 'fqi' and not self._estimator.fitted:
+            self._estimator.fit()  # Remark: Only needs to be fitted once as independent form policy!
         elif self._method == 'fqe':
-            self._fitted_estimator.fit(train_pi_e)
-        self._fitted = True
+            self._estimator.fit(train_pi_e)
         return self
 
     def __call__(self, pi_e):
@@ -69,15 +63,15 @@ class WeightedDoublyRobust:
         weights = self._weighted_is(pi_e, return_weights=True)
         gamma = np.power(self.gamma, np.arange(self.timesteps))[np.newaxis]
 
-        # TODO: Move weights from t-1 to t
+        # TODO: Move weights from t-1 to t (what to do for t=-1?)
         next_weights = weights
 
         # Table of Q estimates (limited to actions chosen by physician)
-        q = self._fitted_estimator.state_action_value()
+        q = self._estimator.state_action_value()
         q = self._to_table(np.take_along_axis(q, self.actions, axis=1))
 
         # Table of V estimates of visited states
-        v = self._to_table(self._fitted_estimator.state_value(pi_e))
+        v = self._to_table(self._estimator.state_value(pi_e))
 
         # Computes WDR estimate
         return self._weighted_is(pi_e) - np.sum(gamma * (next_weights * q - weights * v))
@@ -96,13 +90,23 @@ if __name__ == '__main__':
     valid_random_policy = np.random.uniform(0, 1, valid_behavior_policy.shape)
     valid_random_policy = valid_random_policy / np.sum(valid_random_policy, axis=1, keepdims=True)
 
-    # Fit estimators on policies evaluated on training data
+    # Needed data files
     behavior_policy_file = 'physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv'
     mdp_training_file = '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv'
     mdp_validation_file = '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv'
-    wdr_behavior = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file).fit(train_behavior_policy)
-    wdr_random = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file).fit(train_random_policy)
 
-    print('WDR:')
+    # Fit FQE-WDR estimators
+    wdr_behavior = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file, method='fqe').fit(train_behavior_policy)
+    wdr_random = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file, method='fqe').fit(train_random_policy)
+
+    print('WDR (FQE):')
+    print('behavior:', wdr_behavior(valid_behavior_policy))
+    print('random:  ', wdr_random(valid_random_policy))
+
+    # Fit FQI-WDR estimators
+    wdr_behavior = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file, method='fqi').fit(train_behavior_policy)
+    wdr_random = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file, method='fqi').fit(train_random_policy)
+
+    print('WDR (FQI):')
     print('behavior:', wdr_behavior(valid_behavior_policy))
     print('random:  ', wdr_random(valid_random_policy))
