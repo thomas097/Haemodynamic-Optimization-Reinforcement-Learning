@@ -8,13 +8,18 @@ class EvaluationReplay:
     """ Implements a simple experience replay buffer which sequentially
         iterates over a dataset returning batches of states.
     """
-    def __init__(self, states, episodes, return_history=False):
+    def __init__(self, dataset, return_history=False):
+        # Extract states and episodes from dataset
+        states = dataset.filter(regex='x\d+').values
+        episodes = dataset.episode.values
+
         # Move states, action and rewards to GPU if available
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self._states = torch.Tensor(states.values).to(self._device)
-        self._episodes = np.array(episodes)
-        self._indices = np.arange(self._episodes.shape[0])
-        self._buffer_size = self._episodes.shape[0]
+        self._states = torch.Tensor(states).to(self._device)
+
+        self._episodes = episodes
+        self._indices = np.arange(episodes.shape[0])
+        self._buffer_size = episodes.shape[0]
         self._return_history = return_history
 
     @staticmethod
@@ -32,7 +37,7 @@ class EvaluationReplay:
                 if self._return_history:
                     states.append(self._states[(self._episodes == self._episodes[i]) & (self._indices <= i)])
                 else:
-                    states.append(self._states[i])  # Current state `i` only
+                    states.append(self._states[i])  # ith state only
 
             # If return_histories, consolidate their lengths
             if self._return_history:
@@ -46,18 +51,21 @@ class PrioritizedReplay:
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, states, actions, rewards, episodes, alpha=0.6, beta0=0.4, eps=1e-2, return_history=False):
+    def __init__(self, dataset, alpha=0.6, beta0=0.4, eps=1e-2, return_history=False):
         # Create single DataFrame with episode and timestep information.
-        self._df = pd.DataFrame({'episode': episodes}).reset_index(drop=True)
+        self._dataset = dataset.reset_index(drop=True)
+        states = self._dataset.filter(regex='x\d+').values  # state space is marked by 'x*'
+        actions = self._dataset.action.values
+        rewards = self._dataset.reward.values
 
         # Move states, action and rewards to GPU if available
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self._states = torch.Tensor(states.values).to(self._device)
-        self._actions = torch.LongTensor(actions.values).unsqueeze(1).to(self._device)
-        self._rewards = torch.LongTensor(rewards.values).unsqueeze(1).to(self._device)
+        self._states = torch.Tensor(states).to(self._device)
+        self._actions = torch.LongTensor(actions).unsqueeze(1).to(self._device)
+        self._rewards = torch.LongTensor(rewards).unsqueeze(1).to(self._device)
 
         # Determines indices of non-terminal states in df
-        self._indices = self._non_terminal_indices(self._df)
+        self._indices = self._non_terminal_indices(self._dataset)
 
         self._buffer_size = len(self._indices)
         self._TD_errors = np.ones(self._buffer_size) * 1e16  # Big numbers ensure all states are sampled at least once
@@ -111,8 +119,8 @@ class PrioritizedReplay:
 
             # Extract states preceding transition `i` in episode + next state
             if self._return_history:
-                ep = self._df.loc[i]['episode']
-                history_idx = ((self._df['episode'] == ep) & (self._df.index <= i + 1)).values
+                ep = self._dataset.loc[i]['episode']
+                history_idx = ((self._dataset['episode'] == ep) & (self._dataset.index <= i + 1)).values
             else:
                 history_idx = np.array([i, i + 1])  # -> history + next state!
 

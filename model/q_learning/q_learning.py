@@ -91,14 +91,12 @@ class DQN(torch.nn.Module):
         return actions.cpu().detach().numpy()
 
 
-def fit_double_dqn(experiment, policy, states, actions, rewards, episodes, num_episodes=1, alpha=1e-3, gamma=0.99,
-                   tau=1e-2, lamda=1e-3, eval_func=None, eval_after=100, batch_size=32, replay_params=(0.0, 0.4),
-                   scheduler_gamma=0.9, step_scheduler_after=100, encoder=None, freeze_encoder=False, min_max_reward=(-1, 1),
-                   lamda_physician=0.0):
+def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, lamda=1e-3, eval_func=None,
+                   eval_after=100, batch_size=32, replay_params=(0.0, 0.4), scheduler_gamma=0.9, step_scheduler_after=100,
+                   encoder=None, freeze_encoder=False, min_max_reward=(-1, 1), lamda_physician=0.0):
 
     # Upload dataset to experience buffer
-    replay_buffer = PrioritizedReplay(states, actions, rewards, episodes, alpha=replay_params[0],
-                                      beta0=replay_params[1], return_history=bool(encoder))
+    replay_buffer = PrioritizedReplay(dataset, return_history=bool(encoder), alpha=replay_params[0], beta0=replay_params[1])
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=alpha)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
