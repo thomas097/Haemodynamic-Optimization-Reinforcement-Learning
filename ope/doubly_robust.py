@@ -1,130 +1,108 @@
 import numpy as np
 import pandas as pd
-from fitted_q_iteration import FittedQIteration
-from fitted_q_evaluation import FittedQEvaluation
+from sklearn.preprocessing import label_binarize
+
+from importance_sampling import WeightedIS
+from fitted_q import FittedQEvaluation, FittedQIteration
+
 
 class WeightedDoublyRobust:
-    def __init__(self, behavior_policy_file, states, actions, rewards, episodes, dm_method='fqe', max_iters=10,
-                 gamma=0.9, verbose=False):
+    def __init__(self, behavior_policy_file, mdp_training_file, mdp_validation_file=None, gamma=0.9, lrate=1e-2,
+                 initial_iters=500, warm_iters=100, method='fqe'):
         """ Implementation of the Weighted Doubly Robust (WDR) estimator for OPE. We use a
-            Weighted Importance Sampling estimator for the IS part and a Fitted Q-Iteration
-            or evaluation estimator for the DM part.
+            Weighted Importance Sampling estimator for the IS part and we use a Fitted Q-
+            Evaluation (FQE) or a Fitted Q-Iteration (FQI) estimator for the DM part.
             Please see https://arxiv.org/pdf/1802.03493.pdf for more details.
 
             Params
-            behavior_policy_file: DataFrame containing action probabilities (columns '0'-'24') for behavior policy,
-                                  chosen actions ('action') and associated rewards ('reward').
-            dm_method:            Which DM method to use to estimate the Q-function (e.g. 'fqe'|'fqi')
+            behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
+                                  behavior policy, chosen actions ('action') and associated rewards ('reward').
+            mdp_training_file:    Path to DataFrame containing states, actions and rewards of training set.
+            mdp_validation_file:  Path to DataFrame containing states, actions and rewards of validation set.
             gamma:                Discount factor
         """
-        # pi_b -> estimated action distribution of physician
-        behavior_df = pd.read_csv(behavior_policy_file)
-        self._pi_b = self._get_action_probabilities(behavior_df)
+        # Define WIS estimator
+        self._weighted_is = WeightedIS(behavior_policy_file, gamma=gamma)
+        self.timesteps = self._weighted_is.timesteps
+        self.actions = self._weighted_is.actions
+        self.gamma = gamma
 
-        # Action indices (e.g. int(5) -> action nr. 6)
-        self._action_idx = np.expand_dims(behavior_df['action'], axis=1).astype(int)
-
-        # Infer max number of time steps T
-        self._timesteps = behavior_df.groupby('episode').size().max()
-
-        # Table of non-discounted rewards (incl. NaNs at terminal state!)
-        self._rewards = self._to_table(behavior_df['reward'].values)
-        self._gamma = gamma
-
-        # Specify estimator yielding estimates for Q(s, a) and V(s)
-        if dm_method == 'fqi':
-            self._estimator = FittedQIteration(states, actions, rewards, episodes, method='rf', max_iters=max_iters,
-                                               gamma=self._gamma, verbose=verbose)
-        elif dm_method == 'fqe':
-            self._estimator = FittedQEvaluation(states, actions, rewards, episodes, method='rf', max_iters=max_iters,
-                                                gamma=self._gamma, verbose=verbose)
+        # Define covariate estimation method (FQI/FQE)
+        self._method = method
+        if self._method == 'fqi':
+            estimator = FittedQIteration
+        elif self._method == 'fqe':
+            estimator = FittedQEvaluation
         else:
-            raise Exception('dm_method %s not understood' % dm_method)
+            raise Exception('Estimator %s not recognized' % estimation_type)
 
-    def _to_table(self, flat_list):
-        # Reshapes a flattened list of episodes to shape (num_episodes, num_time_steps)
-        return flat_list.reshape(-1, self._timesteps)
+        # If no validation set is given, assume training set
+        mdp_validation_file = mdp_validation_file if mdp_validation_file is not None else mdp_training_file
 
-    @staticmethod
-    def _get_action_probabilities(behavior_policy_df):
-        # Return numeric columns (assumed to belong to actions, i.e., '0'-'24')
-        cols = sorted([c for c in behavior_policy_df.columns if c.isnumeric()], key=lambda c: int(c))
-        return behavior_policy_df[cols].values.astype(np.float64)
+        # Init DM estimator
+        self._fitted_estimator = estimator(mdp_training_file, mdp_validation_file, gamma=gamma, lrate=lrate,
+                                           initial_iters=initial_iters, warm_iters=warm_iters)
+        self._fitted = False
 
-    def __call__(self, pi_eval):
+    def _to_table(self, arr):
+        return np.nan_to_num(arr.reshape(-1, self.timesteps), nan=0.0)  # Replace NaNs in reward table
+
+    def fit(self, train_pi_e):
+        """ (Re)fits FQE/FQI estimator on the training set given action probabilities
+            over training states. Note, if FQI is used, `train_pi_e` will not be used.
+        """
+        if self._method == 'fqi' and not self._fitted:
+            self._fitted_estimator.fit()  # Remark: Only needs to be fitted once as independent form policy!
+        elif self._method == 'fqe':
+            self._fitted_estimator.fit(train_pi_e)
+        self._fitted = True
+        return self
+
+    def __call__(self, pi_e):
         """ Computes the WIS estimate of V^πe.
 
             evaluation_policy: Table of action probs acc. to πe with shape (num_states, num_actions)
 
             Returns:           Estimate of mean V^πe
         """
-        # Fit estimator to obtain state (V) and state-action value (Q) estimates
-        if not self._estimator.is_fitted:
-            self._estimator.fit(pi_eval)
-        Q = self._to_table(self._estimator.Q(states, actions))
-        V = self._to_table(self._estimator.V(states, pi_eval))
+        # Compute importance weights and array of discount factors
+        weights = self._weighted_is(pi_e, return_weights=True)
+        gamma = np.power(self.gamma, np.arange(self.timesteps))[np.newaxis]
 
-        # Extract table with action probabilities acc. to πe (πb) w.r.t. chosen actions
-        action_probs_e = self._to_table(np.take_along_axis(pi_eval, self._action_idx, axis=1))
-        action_probs_b = self._to_table(np.take_along_axis(self._pi_b, self._action_idx, axis=1))
+        # TODO: Move weights from t-1 to t
+        next_weights = weights
 
-        # Drop terminal states where no rewards are received
-        action_probs_e = action_probs_e[:, :-1]
-        action_probs_b = action_probs_b[:, :-1]
-        rewards = self._rewards[:, :-1]
-        Q = Q[:, :-1]
-        V = V[:, :-1]
+        # Table of Q estimates (limited to actions chosen by physician)
+        q = self._fitted_estimator.state_action_value()
+        q = self._to_table(np.take_along_axis(q, self.actions, axis=1))
 
-        # Compute cumulative importance ratio
-        ratio = np.cumprod(action_probs_e / action_probs_b, axis=1)
-        w_t = ratio / ratio.sum(axis=0, keepdims=True)
+        # Table of V estimates of visited states
+        v = self._to_table(self._fitted_estimator.state_value(pi_e))
 
-        # Compute gamma^t for 0:T-1
-        gamma_t = np.power(self._gamma, np.arange(self._timesteps - 1))[np.newaxis]
-
-        # Shift w_{t-1} one step forward to time t
-        w_t_minus_1 = np.zeros(w_t.shape)
-        w_t_minus_1[:, 1:] = w_t[:, :-1]
-
-        # Compute WIS and DM part
-        wis = gamma_t * w_t * rewards
-        dm = gamma_t * (w_t * Q - w_t_minus_1 * V)
-        return np.sum(wis - dm)
+        # Computes WDR estimate
+        return self._weighted_is(pi_e) - np.sum(gamma * (next_weights * q - weights * v))
 
 
 if __name__ == '__main__':
-    training_data = pd.read_csv('../../preprocessing/datasets/mimic-iii/roggeveen/mimic-iii_train.csv')
-
-    # Unpack training dataset into states, actions, rewards and episode IDs
-    meta_data = ['icustay_id', 'timestep', 'max_vp_shifted', 'total_iv_fluid_shifted', 'reward', 'action', 'state_sirs']
-    actions = training_data['action'].values.astype(np.uint8)
-    rewards = training_data['reward'].values
-    episodes = training_data['icustay_id'].values.astype(np.uint64)
-    states = training_data[[c for c in training_data.columns if c not in meta_data]].values
-
     # Behavior policy
-    behavior_df = pd.read_csv('physician_policy/mimic-iii_train_behavior_policy.csv')
-    behavior_policy = behavior_df[[str(i) for i in range(25)]].values
+    behavior_policy_path = 'physician_policy/roggeveen_4h/mimic-iii_%s_behavior_policy.csv'
+    train_behavior_policy = pd.read_csv(behavior_policy_path % 'train').filter(regex='\d+').values
+    valid_behavior_policy = pd.read_csv(behavior_policy_path % 'valid').filter(regex='\d+').values
 
     # Random policy
-    random_policy = np.random.uniform(0.0, 1, behavior_policy.shape)
-    random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
+    train_random_policy = np.random.uniform(0, 1, train_behavior_policy.shape)
+    train_random_policy = train_random_policy / np.sum(train_random_policy, axis=1, keepdims=True)
 
-    # Zero policy (inaction)
-    zero_policy = np.zeros(behavior_policy.shape)
-    zero_policy[:, 0] = 1
+    valid_random_policy = np.random.uniform(0, 1, valid_behavior_policy.shape)
+    valid_random_policy = valid_random_policy / np.sum(valid_random_policy, axis=1, keepdims=True)
 
-    # Score policies using WDR estimator
-    wdr = WeightedDoublyRobust('physician_policy/mimic-iii_train_behavior_policy.csv',
-                               states, actions, rewards, episodes, verbose=False)
+    # Fit estimators on policies evaluated on training data
+    behavior_policy_file = 'physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv'
+    mdp_training_file = '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv'
+    mdp_validation_file = '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv'
+    wdr_behavior = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file).fit(train_behavior_policy)
+    wdr_random = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, mdp_validation_file).fit(train_random_policy)
 
     print('WDR:')
-    print('behavior:', wdr(behavior_policy))
-    print('random  :', wdr(random_policy))
-    print('zero    :', wdr(zero_policy))
-
-    # Sanity check: Expected discounted reward of behavior policy?
-    rewards = rewards.reshape(-1, 18)[:, :-1]
-    gamma = np.power(0.9, np.arange(17))[np.newaxis]
-    discounted_reward = np.mean(np.sum(gamma * rewards, axis=1))
-    print('\nTrue reward of pi_b:', discounted_reward)
+    print('behavior:', wdr_behavior(valid_behavior_policy))
+    print('random:  ', wdr_random(valid_random_policy))
