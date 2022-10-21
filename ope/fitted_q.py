@@ -262,7 +262,6 @@ if __name__ == '__main__':
     print('Random:   ', np.mean(random_estimator_fqe.state_value(first_states_only=True)))
 
     # Fit FQIs (Roggeveen et al., 2021)
-    training_file = '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv'
     behavior_estimator_fqi = FittedQIteration(training_file).fit()  # no target policy needed (assumed greedy)
     zerodrug_estimator_fqi = FittedQIteration(training_file).fit()
     random_estimator_fqi = FittedQIteration(training_file).fit()

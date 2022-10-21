@@ -8,7 +8,7 @@ from fitted_q import FittedQEvaluation, FittedQIteration
 
 class WeightedDoublyRobust:
     def __init__(self, behavior_policy_file, mdp_training_file, mdp_validation_file=None, gamma=1.0, lrate=1e-2,
-                 initial_iters=1000, warm_iters=100, method='fqe'):
+                 initial_iters=1000, warm_iters=100, method='fqe', reward_bounds=(-15, 15)):
         """ Implementation of the Weighted Doubly Robust (WDR) estimator for OPE. We use a
             Weighted Importance Sampling estimator for the IS part and we use a Fitted Q-
             Evaluation (FQE) or a Fitted Q-Iteration (FQI) estimator for the DM part.
@@ -23,9 +23,12 @@ class WeightedDoublyRobust:
         """
         # Define WIS estimator
         self._weighted_is = WeightedIS(behavior_policy_file, gamma=gamma)
+
+        # Parameters
         self.timesteps = self._weighted_is.timesteps
         self.actions = self._weighted_is.actions
         self.gamma = gamma
+        self.min_reward, self.max_reward = reward_bounds
 
         # If no validation set is given, assume training set
         mdp_validation_file = mdp_validation_file if mdp_validation_file is not None else mdp_training_file
@@ -72,6 +75,10 @@ class WeightedDoublyRobust:
 
         # Table of V estimates of visited states
         v = self._to_table(self._estimator.state_value(pi_e))
+
+        # Clip Q and V to min/max reward
+        q = np.clip(q, a_min=self.min_reward, a_max=self.max_reward)
+        v = np.clip(v, a_min=self.min_reward, a_max=self.max_reward)
 
         # Computes WDR estimate
         return self._weighted_is(pi_e) - np.sum(gamma * (next_weights * q - weights * v))
