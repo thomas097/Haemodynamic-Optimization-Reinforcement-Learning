@@ -26,8 +26,9 @@ class PerformanceTracker:
 
         self._metrics[metric_name].append(value)
 
-    def print_stats(self):
-        return ', '.join(['%s = %.3f' % (m, self._metrics[m][-1]) for m in self._names])
+    def print_stats(self, window=1):
+        # Print stats averaged over a window
+        return ', '.join(['%s = %.3f' % (m, np.mean(self._metrics[m][-window:])) for m in self._names])
 
     def save_metrics(self):
         # Store metrics as .npy

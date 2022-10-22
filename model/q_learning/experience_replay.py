@@ -13,7 +13,7 @@ class EvaluationReplay:
         states = dataset.filter(regex='x\d+').values
         episodes = dataset.episode.values
 
-        # Move states, action and rewards to GPU if available
+        # Move states to GPU if available
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self._states = torch.Tensor(states).to(self._device)
 

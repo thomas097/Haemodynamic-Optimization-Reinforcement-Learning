@@ -95,19 +95,25 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
                    eval_after=100, batch_size=32, replay_params=(0.0, 0.4), scheduler_gamma=0.9, step_scheduler_after=100,
                    encoder=None, freeze_encoder=False, min_max_reward=(-1, 1), lamda_physician=0.0):
 
-    # Upload dataset to experience buffer
-    replay_buffer = PrioritizedReplay(dataset, return_history=bool(encoder), alpha=replay_params[0], beta0=replay_params[1])
+    # Load dataset into replay buffer
+    uses_encoder = encoder is not None
+    replay_buffer = PrioritizedReplay(dataset, return_history=uses_encoder, alpha=replay_params[0], beta0=replay_params[1])
 
-    optimizer = torch.optim.Adam(policy.parameters(), lr=alpha)
+    # Adam optimizer with policy and encoder (if provided)
+    modules = torch.nn.ModuleList([policy])
+    if uses_encoder:
+        modules.append(encoder)
+    optimizer = torch.optim.Adam(modules.parameters(), lr=alpha)
+
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
     tracker = PerformanceTracker(experiment)
 
     # Use target network for stability
-    target = copy.deepcopy(policy)
-    target.load_state_dict(policy.state_dict())  # Sanity check
+    policy_target = copy.deepcopy(policy)
+    encoder_target = copy.deepcopy(encoder) if uses_encoder else None
 
     # Freeze encoder (optional)
-    if encoder and freeze_encoder:
+    if uses_encoder and freeze_encoder:
         for param in encoder.parameters():
             param.requires_grad = False
         print('Freezing encoder...')
@@ -120,30 +126,29 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
     #     Training      #
     #####################
 
-    # Enable training mode
-    policy.train(True)
-    target.train(False)
-    if encoder:
-        encoder.train(True)
+    # Enable training mode for policy; disable for its target
+    policy.train()
+    policy_target.eval()
+    if uses_encoder:
+        encoder.train()
+        encoder_target.eval()
 
     for episode in tqdm(range(num_episodes)):
 
         # Sample (s, a, r, s') transition from PER
         states, actions, rewards, next_states, transitions, weights = replay_buffer.sample(N=batch_size)
 
-        # Encode states if encoder provided
-        if encoder:
-            states = encoder(states)
-            next_states = encoder(next_states)
+        # Estimate Q(s, a) with s optionally encoded from s_0:t-1
+        states = encoder(states) if uses_encoder else states
+        q_pred = policy(states).gather(dim=1, index=actions)
 
-        # Compute Q-estimate
-        q_values = policy(states)
-        q_pred = q_values.gather(dim=1, index=actions)
-
-        # Bootstrap Q-target
         with torch.no_grad():
-            # Clamp next state values acc. to target to min/max reward
-            next_target_state_value = torch.clamp(target(next_states), min=-min_max_reward[0], max=min_max_reward[1])
+            # Bootstrap Q(s', a') with s' optionally a function of s_0:t
+            next_states = encoder_target(next_states) if uses_encoder else next_states
+            next_target_state_value = policy_target(next_states)
+
+            # Clamp to min/max reward
+            next_target_state_value = torch.clamp(next_target_state_value, min=-min_max_reward[0], max=min_max_reward[1])
 
             # Mask future reward at terminal state
             reward_mask = (rewards == 0).float()
@@ -154,18 +159,21 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
 
         # Loss + regularization
         loss = weighted_Huber_loss(q_pred, q_target, weights)
-        loss += lamda * reward_regularizer(q_pred, min_max_reward[1])       # Punishes model for exceeding min/max reward
-        loss += lamda_physician * physician_regularizer(q_values, actions)  # Forces model to be closer to physician policy
+        loss += lamda * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
 
         # Policy update
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # Soft target update
+        # Soft target updates
         with torch.no_grad():
-            for target_w, policy_w in zip(target.parameters(), policy.parameters()):
-                target_w.data = ((1 - tau) * target_w.data + tau * policy_w.data).clone()
+            for policy_target_w, policy_w in zip(policy_target.parameters(), policy.parameters()):
+                policy_target_w.data = ((1 - tau) * policy_target_w.data + tau * policy_w.data).clone()
+
+            if uses_encoder:
+                for encoder_target_w, encoder_w in zip(encoder_target.parameters(), encoder.parameters()):
+                    encoder_target_w.data = ((1 - tau) * encoder_target_w.data + tau * encoder_w.data).clone()
 
         # Update lrate every few episodes
         if episode % step_scheduler_after == 0 and episode > 0:
@@ -180,20 +188,20 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
         ############################
 
         tracker.add('loss', loss.item())
-        tracker.add('avg_Q', torch.mean(q_values[q_values > -1e5]).item())  # Drop impossible actions 1-4 with -inf Q-values
+        tracker.add('avg_Q', torch.mean(q_pred[q_pred > -1e5]).item())  # Drop impossible actions 1-4 with -inf Q-values
         tracker.add('abs_TD_error', torch.mean(td_error))
         tracker.add('w_imp', torch.mean(weights))
 
         if episode % eval_after == 0:
             if eval_func:
-                eval_args = (policy,) if encoder is None else (encoder, policy)
+                eval_args = (encoder, policy) if uses_encoder else (policy, )
                 for metric, value in eval_func(*eval_args).items():
                     tracker.add(metric, value)
 
             # Save performance values intermittently
             tracker.save_metrics()
 
-            print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
+            print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats(eval_after)))
 
     # Disable training mode
     policy.eval()
