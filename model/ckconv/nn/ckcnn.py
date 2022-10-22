@@ -4,31 +4,30 @@ from ckconv_layers import CKBlock
 
 
 class CKCNN(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, num_blocks=1):
+    def __init__(self, layer_channels=(64, 128), max_timesteps=100):
         super().__init__()
-        self._linear = torch.nn.Linear(in_channels, out_channels)
-
-        self._layers = [CKBlock(out_channels, out_channels) for _ in range(num_blocks)]
-        self._stack = torch.nn.Sequential(*self._layers)
+        self._blocks = []
+        for i in range(len(layer_channels) - 1):
+            self._blocks.append(CKBlock(layer_channels[i], layer_channels[i + 1], max_timesteps))
+        self._model = torch.nn.Sequential(*self._blocks)
 
         # Use GPU when available
-        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
     @property
     def kernels(self):
-        return [layer.kernel for layer in self._layers]
+        return [block.ckconv.kernel for block in self._blocks]
 
-    def forward(self, x, return_last=True):
-        self._linear(x)
-        y = self._stack(self._linear(x))
-        return y[:, -1] if return_last else y
+    def forward(self, x):  # <- (batch_size, seq_length, in_channels)
+        y = self._model(x.permute(0, 2, 1))
+        return y[:, :, -1]
 
 
 if __name__ == '__main__':
     X = torch.randn(64, 10, 32)
 
-    model = CKCNN(in_channels=32, out_channels=64, num_blocks=1)
+    model = CKCNN(layer_channels=(32, 64))
 
     # Sanity check: time forward pass
     def timing_test(model, x, N=10):
