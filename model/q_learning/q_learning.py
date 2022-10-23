@@ -32,7 +32,7 @@ class DQN(torch.nn.Module):
         employ a dueling architecture as proposed in (van Hasselt et al., 2015).
         For details: https://arxiv.org/pdf/1511.06581.pdf
     """
-    def __init__(self, state_dim=10, hidden_dims=(), num_actions=2, dueling=True, disallow=()):
+    def __init__(self, state_dim=10, hidden_dims=(), num_actions=2, dueling=True):
         super(DQN, self).__init__()
 
         # Shared feature network
@@ -56,11 +56,6 @@ class DQN(torch.nn.Module):
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.to(self._device)
 
-        # Mask used to set Q(*, a) of disallowed actions to -inf
-        self._mask = torch.zeros((1, num_actions)).to(self._device)
-        self._mask[:, list(disallow)] = 1
-        self._inf = INF
-
     @staticmethod
     def _init_xavier_uniform(layer):
         """ Init weights using Xavier initialization """
@@ -71,10 +66,7 @@ class DQN(torch.nn.Module):
     def forward(self, states):  # <- (batch_size, state_dim)
         """ Forward pass through DQN """
         h = self._base(states)
-        q = self._head(h)
-
-        # Mask out disallowed actions!
-        return (1 - self._mask) * q + self._mask * -self._inf
+        return self._head(h)
 
     def action_probs(self, states):
         """ Return probability of action given state as given by softmax """
@@ -93,7 +85,7 @@ class DQN(torch.nn.Module):
 
 def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, lamda=1e-3, eval_func=None,
                    eval_after=100, batch_size=32, replay_params=(0.0, 0.4), scheduler_gamma=0.9, step_scheduler_after=100,
-                   encoder=None, freeze_encoder=False, min_max_reward=(-1, 1), lamda_physician=0.0):
+                   encoder=None, freeze_encoder=False, min_max_reward=(-1, 1), lamda_physician=0.0, save_on=None):
 
     # Load dataset into replay buffer
     uses_encoder = encoder is not None
@@ -140,7 +132,8 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
 
         # Estimate Q(s, a) with s optionally encoded from s_0:t-1
         states = encoder(states) if uses_encoder else states
-        q_pred = policy(states).gather(dim=1, index=actions)
+        q_vals = policy(states)
+        q_pred = q_vals.gather(dim=1, index=actions)
 
         with torch.no_grad():
             # Bootstrap Q(s', a') with s' optionally a function of s_0:t
@@ -158,8 +151,9 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
             q_target = rewards + gamma * reward_mask * next_target_state_value.gather(dim=1, index=next_model_action)
 
         # Loss + regularization
-        loss = weighted_Huber_loss(q_pred, q_target, weights)
+        loss = weighted_MSE_loss(q_pred, q_target, weights)
         loss += lamda * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
+        loss += lamda_physician * physician_regularizer(q_vals, actions)
 
         # Policy update
         optimizer.zero_grad()
@@ -187,28 +181,35 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
         #   Performance Tracking   #
         ############################
 
-        tracker.add('loss', loss.item())
-        tracker.add('avg_Q', torch.mean(q_pred[q_pred > -1e5]).item())  # Drop impossible actions 1-4 with -inf Q-values
-        tracker.add('abs_TD_error', torch.mean(td_error))
-        tracker.add('w_imp', torch.mean(weights))
+        tracker.add(loss=loss.item())
+        tracker.add(avg_Q_value=torch.mean(q_vals[q_vals > -INF]).item())  # Drop impossible actions 1-4 with -inf Q-values
+        tracker.add(abs_TD_error=torch.mean(td_error))
+        tracker.add(avg_imp_weight=torch.mean(weights))
 
         if episode % eval_after == 0:
             if eval_func:
                 eval_args = (encoder, policy) if uses_encoder else (policy, )
-                for metric, value in eval_func(*eval_args).items():
-                    tracker.add(metric, value)
+                tracker.add(**eval_func(*eval_args))
 
-            # Save performance values intermittently
             tracker.save_metrics()
+            print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
 
-            print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats(eval_after)))
+            # If performance on validation set was better than before, save policy (and encoder) to `model` directory
+            if save_on and tracker.new_best(metric=save_on):
+                print('Improvement! Saving model!')
+                tracker.save_model_pt(policy, 'policy')
+                if encoder:
+                    tracker.save_model_pt(encoder, 'encoder')
+
+    # Final save (if not saved on model improvement)
+    if not save_on:
+        print('Done! Saving model!')
+        tracker.save_model_pt(policy, 'policy')
+        if encoder:
+            tracker.save_model_pt(encoder, 'encoder')
+    tracker.save_metrics()
 
     # Disable training mode
     policy.eval()
     if encoder:
         encoder.eval()
-
-    # Save policy (and encoder) to `model` directory
-    tracker.save_model_pt(policy, 'policy')
-    if encoder:
-        tracker.save_model_pt(encoder, 'encoder')
