@@ -134,9 +134,3 @@ if __name__ == '__main__':
 
     total_reward = np.mean(np.sum(rewards, axis=1))
     print('True total reward of pi_b:', total_reward)
-
-    # Sanity check: estimate total reward of zero-drug trajectories
-    actions = np.nan_to_num(behavior_df['action'].values.reshape(-1, 18), nan=0.0)
-    rewards = rewards[actions.mean(axis=1) < 0.5]
-    total_reward = np.mean(np.sum(rewards, axis=1))
-    print('Expected zero-drug reward:', total_reward)
