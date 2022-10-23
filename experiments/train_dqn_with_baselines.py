@@ -10,34 +10,12 @@ import re
 import torch
 import pandas as pd
 from q_learning import DQN, fit_double_dqn
-from experience_replay import EvaluationReplay
 from baseline_encoders import *
-from importance_sampling import WeightedIS
-from physician import Physician
-
-
-class OPECallback:
-    """ Callback which evaluates policy π on a validation set of
-        states and returns the WIS estimate of V^πe.
-    """
-    def __init__(self, behavior_policy_file, valid_data):
-        # Load behavior policy that was used to sample validation set
-        self._wis = WeightedIS(behavior_policy_file)
-        self._phys = Physician(behavior_policy_file)
-        self._replay = EvaluationReplay(valid_data, return_history=True)
-
-    def __call__(self, encoder, policy):
-        # Feed histories through encoder to get fixed state representation
-        encoded_states = torch.concat([encoder(t) for t in self._replay.iterate(BATCH_SIZE)])
-
-        # Compute action probs from state vectors
-        action_probs = policy.action_probs(encoded_states)
-        return {'wis': self._wis(action_probs),
-                'phys_entropy': self._phys(action_probs)}
+from train_dqn_with_ckcnn import OPECallback  # simply reuse callback of the CKCNN
 
 
 if __name__ == '__main__':
-    ENCODER_METHOD = 'lstm'
+    ENCODER_METHOD = 'causal_cnn'
     IN_CHANNELS = 48
     OUT_CHANNELS = 48
     BATCH_SIZE = 32
@@ -55,7 +33,7 @@ if __name__ == '__main__':
     elif ENCODER_METHOD == 'concat-3':
         encoder = StateConcatenation(k=3)
     elif ENCODER_METHOD == 'causal_cnn':
-        encoder = CausalCNN((IN_CHANNELS, OUT_CHANNELS), kernel_sizes=(5,), dilations=(2,))
+        encoder = CausalCNN((IN_CHANNELS, OUT_CHANNELS), kernel_sizes=(17,), dilations=(1,))
     elif ENCODER_METHOD == 'lstm':
         encoder = LSTM(IN_CHANNELS, OUT_CHANNELS, batch_size=BATCH_SIZE)
     elif ENCODER_METHOD == 'gru':
@@ -64,7 +42,7 @@ if __name__ == '__main__':
         raise Exception('Method %s not recognized' % ENCODER_METHOD)
 
     # create Dueling DQN controller
-    dqn_model = DQN(state_dim=OUT_CHANNELS, hidden_dims=(128, 128), num_actions=25)
+    dqn_model = DQN(state_dim=OUT_CHANNELS, hidden_dims=(128,), num_actions=25)
 
     # evaluation callback using OPE
     callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
@@ -80,11 +58,12 @@ if __name__ == '__main__':
                    lamda=5,
                    tau=1e-4,
                    num_episodes=30000,
-                   batch_size=BATCH_SIZE,
+                   batch_size=32,
                    replay_params=(0.4, 0.6),  # was (0.6, 0.9)
                    eval_func=callback,
-                   eval_after=500,
+                   eval_after=250,
                    scheduler_gamma=0.95,
                    step_scheduler_after=2000,
                    min_max_reward=(-15, 15),
-                   lamda_physician=0.0)
+                   lamda_physician=0.0,
+                   save_on='wis')

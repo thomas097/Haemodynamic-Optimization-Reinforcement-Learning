@@ -1,69 +1,54 @@
 """
 Author:   Thomas Bellucci
-Filename: train_dqn_with_ckcnn.py
-Descr.:   Performs the training of a Dueling Double DQN model with state-space
-          encoder over entire histories.
+Filename: train_dqn_roggeveen.py
+Descr.:   Performs the training of a Dueling Double DQN model as described in
+          (Roggeveen et al., 2021) using a handcrafted feature set.
 Date:     01-10-2022
 """
 
 import pandas as pd
-
-import torch
 from q_learning import DQN, fit_double_dqn
-from experience_replay import EvaluationReplay
-from ckcnn import CKCNN
-from importance_sampling import WeightedIS
+from importance_sampling import WeightedIS, IS
 from physician import Physician
 
 
 class OPECallback:
-    """ Callback which evaluates policy π on a validation set of
-        states and returns the WIS estimate of V^πe.
+    """ Callback to compute a WIS estimate of V^πe during training
+        and the CE loss between model and physician action probabilities
     """
     def __init__(self, behavior_policy_file, valid_data):
-        # Load validation set and metrics
+        # Load behavior policy that was used to sample validation set
         self._wis = WeightedIS(behavior_policy_file)
         self._phys = Physician(behavior_policy_file)
-        self._replay = EvaluationReplay(valid_data, return_history=True)
+        self._states = valid_data.filter(regex='x\d+').values
 
-    def __call__(self, encoder, policy):
-        # Feed histories through encoder to get fixed state representation
-        encoded_states = torch.concat([encoder(t) for t in self._replay.iterate()])
-
-        # Action probs from state vectors
-        action_probs = policy.action_probs(encoded_states)
-
-        # Metrics
-        weighted_is = self._wis(action_probs)
-        phys_entropy = self._phys(action_probs)
-        return {'wis': weighted_is, 'phys_entropy': phys_entropy}
+    def __call__(self, policy):
+        action_probs = policy.action_probs(self._states)
+        return {'wis': self._wis(action_probs),
+                'phys_entropy': self._phys(action_probs)}
 
 
 if __name__ == '__main__':
-    # Load training and validation data
+    # Training and validation data
     train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
     valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
     print('train.size = %s  valid.size = %s' % (len(train_df) // 18, len(valid_df) // 18))
 
-    # Setup encoder model
-    encoder = CKCNN(layer_channels=(48, 64), max_timesteps=18)
-
-    # Create Dueling DQN controller
-    dqn_model = DQN(state_dim=64, hidden_dims=(128,), num_actions=25)
-
-    # Handles intermittent evaluation using OPE on validation set
+    # Evaluation callback using OPE
     callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
-    # Fit model
-    fit_double_dqn(experiment='results/ckcnn_experiment',
+
+    # Optimize DQN model (Note: disallow marks impossible actions)
+    dqn_model = DQN(state_dim=48, num_actions=25, hidden_dims=(128, 128))
+
+    fit_double_dqn(experiment='results/roggeveen_experiment',
                    policy=dqn_model,
-                   encoder=encoder,
                    dataset=train_df,
                    alpha=1e-4,
                    gamma=0.9,
                    lamda=5,
                    tau=1e-4,
-                   num_episodes=50000,
+                   num_episodes=30000,
                    batch_size=32,
                    replay_params=(0.4, 0.6),  # was (0.6, 0.9)
                    eval_func=callback,
