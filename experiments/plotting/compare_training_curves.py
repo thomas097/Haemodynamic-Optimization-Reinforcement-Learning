@@ -30,7 +30,7 @@ def main(paths, metric):
 
 if __name__ == '__main__':
     metric = 'wis'
-    paths = {'CKCNN': '../results/ckcnn_experiment_2022-10-23_20-55-07',
+    paths = {'CKCNN': '../results/ckcnn_experiment_2022-10-23_21-10-05',
              'Roggeveen et al.': '../results/roggeveen_experiment_2022-10-23_20-44-38'}
     main(paths, metric)
 

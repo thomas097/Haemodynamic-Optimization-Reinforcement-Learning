@@ -71,6 +71,6 @@ def main(model_paths, dataset_path, bins=50):
 
 if __name__ == '__main__':
     dataset_path = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_test.csv'
-    paths = {'CKCNN': '../results/ckcnn_experiment_2022-10-23_19-00-28',
+    paths = {'CKCNN': '../results/ckcnn_experiment_2022-10-23_21-10-05',
              'Markovian': '../results/roggeveen_experiment_2022-10-23_19-28-28'}
     main(paths, dataset_path)

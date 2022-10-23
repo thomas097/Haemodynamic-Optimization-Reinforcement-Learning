@@ -18,12 +18,12 @@ def create_action_matrix(actions, action_to_bins, labels=range(5)):
     return pd.DataFrame(data=mat, columns=labels, index=labels).iloc[::-1]
 
 
-def main(model_paths, dataset, action_bin_file, start_from=0):
-    dataset = pd.read_csv(dataset)
+def main(model_paths, dataset_file, action_bin_file, start_at=0):
+    dataset = pd.read_csv(dataset_file)
 
     # Mask out timesteps preceding `start_from`
     timesteps = dataset.groupby('episode')['timestep'].transform(lambda x: np.arange(len(x)))
-    timestep_mask = (timesteps >= start_from).values
+    timestep_mask = (timesteps >= start_at).values
 
     # Mapping from 0-25 to 5x5 action space
     action_to_bins = load_actions_to_bins(action_bin_file)
@@ -38,8 +38,8 @@ def main(model_paths, dataset, action_bin_file, start_from=0):
         encoder = load_pretrained(model_path, 'encoder.pkl')
 
         # Create action matrix of actions prescribed by policy
-        actions = evaluate_on_dataset(encoder, policy, dataset, _type='actions')
-        action_mat = create_action_matrix(actions[timestep_mask], action_to_bins)
+        model_actions = evaluate_on_dataset(encoder, policy, dataset, _type='actions')
+        action_mat = create_action_matrix(model_actions[timestep_mask], action_to_bins)
 
         action_mats.append(action_mat)
         labels.append(model_name)
@@ -74,6 +74,6 @@ if __name__ == '__main__':
     dataset_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_test.csv'
     action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/action_to_vaso_fluid_bins.pkl'
 
-    main(model_paths, dataset_file, action_bin_file, start_from=6)  # t=6 -> estimated onset of sepsis
+    main(model_paths, dataset_file, action_bin_file, start_at=6)  # t=6 -> estimated onset of sepsis
 
 
