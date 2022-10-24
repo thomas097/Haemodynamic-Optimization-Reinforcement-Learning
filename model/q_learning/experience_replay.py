@@ -80,7 +80,8 @@ class PrioritizedReplay:
         # Extract indices of all non-terminal states
         indices = []
         for _, episode in df.groupby('episode'):
-            indices += list(episode.index.values[:-1])  # [:-1] ensures terminal states are not sampled
+            nan_rewards = episode['reward'].notna()  # NaN rewards indicate absorbing terminal states!
+            indices += episode.index[~nan_rewards].to_list()
         return np.array(indices)
 
     def _to_index(self, transitions):
