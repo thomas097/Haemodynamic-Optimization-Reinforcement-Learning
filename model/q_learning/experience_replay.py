@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import torch
-from torch.nn.utils.rnn import pad_sequence
+from torch.nn.functional import pad
 
 
 class EvaluationReplay:
@@ -23,8 +23,10 @@ class EvaluationReplay:
         self._return_history = return_history
 
     @staticmethod
-    def _consolidate_length(histories):
-        return pad_sequence(histories, batch_first=True, padding_value=0.0)
+    def _consolidate_length(histories, val=0.0):  # TODO: sloooow but no built-in for this!
+        max_len = max([len(h) for h in histories])
+        padded_histories = [pad(h, (0, 0, max_len - len(h), 0), value=val).unsqueeze(0) for h in histories]
+        return torch.cat(padded_histories, dim=0)
 
     def iterate(self, batch_size=128):
         for j in range(0, self._buffer_size, batch_size):
@@ -80,7 +82,7 @@ class PrioritizedReplay:
         # Extract indices of all non-terminal states
         indices = []
         for _, episode in df.groupby('episode'):
-            nan_rewards = episode['reward'].notna()  # NaN rewards indicate absorbing terminal states!
+            nan_rewards = episode['reward'].isna()  # NaN rewards indicate absorbing terminal states!
             indices += episode.index[~nan_rewards].to_list()
         return np.array(indices)
 
@@ -100,8 +102,10 @@ class PrioritizedReplay:
         self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors.cpu()).flatten()
 
     @staticmethod
-    def _consolidate_length(histories):
-        return pad_sequence(histories, batch_first=True, padding_value=0.0)
+    def _consolidate_length(histories, val=0.0):  # TODO: sloooow but no built-in for this!
+        max_len = max([len(h) for h in histories])
+        padded_histories = [pad(h, (0, 0, max_len - len(h), 0), value=val).unsqueeze(0) for h in histories]
+        return torch.cat(padded_histories, dim=0)
 
     def sample(self, N):
         # Stochastically sampling of transitions (indices) from replay buffer
