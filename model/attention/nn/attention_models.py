@@ -3,95 +3,49 @@ import numpy as np
 
 from time import time_ns
 from attention_layers import SelfAttentionBlock
-from positional_encoding import ItemEncoding, PositionalEncoding
+from positional_encoding import TypeEncoding, PositionalEncoding
 
 
-class SelfAttentionModel(torch.nn.Module):
-    """ Implementation of a self-attention model (Vaswani et al., 2017)
+class CausalTransformer(torch.nn.Module):
     """
-    def __init__(self, in_features, d_model, n_blocks=1, k=4):
-        super().__init__()
-        self._pos_encoding = PositionalEncoding(d_model)
-        self._input_encoding = torch.nn.Linear(in_features, d_model)
+        Implementation of the Transformer (Vaswani et al., 2017).
 
-        encoder_blocks = [SelfAttentionBlock(d_model, k=k) for _ in range(n_blocks)]
-        self._model = torch.nn.Sequential(*encoder_blocks)
+        We treat each clinical measurement as a single 'observation' with a type (e.g. 'heart_rate'),
+        a value (100) and a chart-time (in hours relative to some start-time). We encode the type by
+        a learnt embedding and use sin/cos positional encoding to encode the chart-time.
+        We feed the sum of embeddings (incl. the value) to a stack of encoders with a causal mask.
+    """
+    def __init__(self, vocab_size, d_model, nhead=1, batch_size=32, max_len=1200, mask_layer=True):
+        super().__init__()
+        # Positional- and ItemEncoding layers
+        self._pos_encoding = PositionalEncoding(d_model=d_model, batch_size=batch_size)
+        self._type_encoding = TypeEncoding(vocab_size=vocab_size + 1, embedding_dim=d_model)  # +1 for padding (0)
+
+        # TransformerEncoder layer
+        self._encoder = SelfAttentionBlock(d_model=d_model, nhead=nhead, max_len=max_len)
+
+        self._max_len = max_len  # Protects against overflow
+        self._mask_layer = mask_layer
 
         # Use GPU if available
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-    def forward(self, x, return_last=True):
-        # Positional embeddings for positions in X
-        indices = np.arange(x.shape[1])[np.newaxis]
-        pos_embedding = torch.flip(self._pos_encoding(indices), dims=[1])  # reverse timesteps to make T-1 the anchor
+    def forward(self, X, return_last=True):
+        # Unpack input as sequence of (type, value, timestep) tuples of at most max_len
+        x_type = X[:, -self._max_len:, 0]
+        x_value = X[:, -self._max_len:, 1]
+        x_tstep = X[:, -self._max_len:, 2]
 
-        # Run model on input with positional embedding
-        inputs = self._input_encoding(x) + pos_embedding
-        y = self._model(inputs)
+        # Construct input Tensor
+        type_embedding = self._type_encoding(x_type.long())
+        pos_embedding = self._pos_encoding(x_tstep)
 
-        # Optionally return only last step
-        return y[:, -1] if return_last else y
+        inputs = type_embedding + pos_embedding
+        inputs[:, :, -1] = x_value  # Note: last channel is least corrupted by PE
 
+        # Mask out padding
+        padding_mask = (x_type > 0).bool().unsqueeze(1).repeat(1, x_type.shape[1], 1)  # TODO: mask out inter-type attentions
 
-class ItemWiseTransformer(torch.nn.Module):
-    """ Implementation of the Transformer (Vaswani et al., 2017) using
-        an ItemEncoder to circumvent the need for binning.
-    """
-    def __init__(self, item_vocab, d_model, n_blocks=1, k=4, mask_layers=(0,)):
-        super().__init__()
-        self._pos_encoding = PositionalEncoding(d_model)
-        self._item_encoding = ItemEncoding(item_vocab, d_model)
-        self._blocks = torch.nn.ModuleList([SelfAttentionBlock(d_model, k=k) for _ in range(n_blocks)])
-
-        # Layers to mask
-        self._mask_layers = mask_layers
-
-        # Use GPU if available
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
-
-    def forward(self, items, time_steps, add_cls=True, return_last=True):
-        # Add optional [CLS] token to sequences
-        if add_cls:
-            items = np.array([list(seq) + ['[CLS]'] for seq in items])
-            time_steps = np.array([list(seq) + [torch.max(seq)] for seq in time_steps])  # Assume max time step is decision time
-
-        # Define mask
-        items_rep = np.repeat(items[:, None], repeats=items.shape[1], axis=1)
-        mask = torch.BoolTensor(np.transpose(items_rep, (0, 2, 1)) == items_rep)
-
-        # Compute sum of item embedding and positional embedding
-        item_embedding = self._item_encoding(items)
-        pos_embedding = torch.flip(self._pos_encoding(time_steps), dims=[1])  # reverse timesteps to make T-1 the anchor
-        inputs = item_embedding + pos_embedding
-
-        for i, block in enumerate(self._blocks):
-            inputs = block(inputs, mask=mask if i in self._mask_layers else None)
-
-        # Optionally return only last step
-        return inputs[:, -1] if return_last else inputs
-
-
-if __name__ == '__main__':
-    # Datasets
-    vocab = ['a', 'b', 'c', 'd', 'e']
-    item_dataset = (np.random.choice(vocab, size=(32, 1000)),
-                    torch.cumsum(torch.rand((32, 1000)), dim=1))
-    regular_dataset = (torch.randn(32, 100, 5),)
-
-    # Models
-    regular = SelfAttentionModel(in_features=5, d_model=32)
-    itemwise = ItemWiseTransformer(item_vocab=vocab, d_model=32)
-
-    # Sanity check: timing test
-    def timing_test(model, inputs, N=1):
-        time1 = time_ns()
-        for i in range(N):
-            out = model(*inputs)
-        time2 = time_ns()
-        return (time2 - time1) / (1e9 * N)
-
-
-    print('(Regular)  Time elapsed: %.3f' % timing_test(regular, inputs=regular_dataset))
-    print('(Itemwise) Time elapsed: %.3f' % timing_test(itemwise, inputs=item_dataset))
+        out = self._encoder(inputs, mask=padding_mask)
+        return out[:, -1] if return_last else out
