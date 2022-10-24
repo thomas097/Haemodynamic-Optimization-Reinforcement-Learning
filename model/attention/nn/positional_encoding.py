@@ -3,19 +3,18 @@ import torch
 
 
 class PositionalEncoding(torch.nn.Module):
-    """ Implementation of the Positional Encoding used by (Vaswani et al., 2017)
+    """ Positional Encoding as used by (Vaswani et al., 2017)
         For details, please refer to https://arxiv.org/pdf/1706.03762.pdf
     """
-    def __init__(self, batch_size, d_model):
+    def __init__(self, d_model):
         super(PositionalEncoding, self).__init__()
         # Use GPU if available
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-        # Precompute div term
-        i = torch.arange(0, d_model, 2).unsqueeze(0).unsqueeze(0).repeat(batch_size, 1, 1)  # Expand to batch size!
-        self._div_term = torch.exp(i * (-math.log(10000.0) / d_model)).to(self._device)
         self._d_model = d_model
+        i = torch.arange(0, d_model, 2).unsqueeze(0).unsqueeze(0)
+        self._div_term = torch.exp(i * (-math.log(10000.0) / d_model)).to(self._device)
 
     def forward(self, t):
         """ Converts a sequence of time steps into a sequence of positional embeddings
@@ -25,8 +24,10 @@ class PositionalEncoding(torch.nn.Module):
             returns: Embedding Tensor of shape (batch_size, num_steps, embedding_dim)
         """
         position = t.to(self._device).unsqueeze(2)
+        div_term = self._div_term.repeat(position.shape[0], 1, 1)  # Account for varying batch sizes!
+
         out = torch.zeros(*t.shape, self._d_model)
-        outer = torch.bmm(position, self._div_term)
+        outer = torch.bmm(position, div_term)
         out[:, :, 0::2] = torch.sin(outer)
         out[:, :, 1::2] = torch.cos(outer)
         return out
@@ -62,8 +63,8 @@ if __name__ == '__main__':
     # Sanity Check: does PE look right?
     import matplotlib.pyplot as plt
 
-    t = torch.cumsum(torch.rand(128), dim=0).unsqueeze(0)
-    pe = PositionalEncoding(d_model=64, batch_size=1)
+    t = torch.arange(128).float().unsqueeze(0)
+    pe = PositionalEncoding(d_model=64)
     pe_t = pe(t).detach().numpy()
 
     plt.matshow(pe_t[0])
