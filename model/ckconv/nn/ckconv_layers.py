@@ -123,7 +123,7 @@ class CKBlock(torch.nn.Module):
     """ Simplified CKConv Block with layer normalization and optional
         residual connections (Bai et. al., 2017)
     """
-    def __init__(self, in_channels, out_channels, max_timesteps=100, kernel_dims=32, use_bias=True):
+    def __init__(self, in_channels, out_channels, kernel_dims=32, max_timesteps=100, use_bias=True):
         super().__init__()
         # CKConv layer + Activation
         self.ckconv = CKConv(in_channels, out_channels, max_timesteps, kernel_dims, use_bias=use_bias)

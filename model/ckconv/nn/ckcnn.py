@@ -4,11 +4,11 @@ from ckconv_layers import CKBlock
 
 
 class CKCNN(torch.nn.Module):
-    def __init__(self, layer_channels=(64, 128), max_timesteps=100):
+    def __init__(self, layer_channels=(64, 128), kernel_dims=32, max_timesteps=100):
         super().__init__()
         self._blocks = []
         for i in range(len(layer_channels) - 1):
-            self._blocks.append(CKBlock(layer_channels[i], layer_channels[i + 1], max_timesteps))
+            self._blocks.append(CKBlock(layer_channels[i], layer_channels[i + 1], kernel_dims, max_timesteps))
         self._model = torch.nn.Sequential(*self._blocks)
 
         # Use GPU when available
