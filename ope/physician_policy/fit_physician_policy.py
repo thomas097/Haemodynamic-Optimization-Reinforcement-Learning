@@ -63,20 +63,18 @@ def get_feature_weights(feature_names, feature_weights):
     return weights
 
 
-def estimate_behavior_policy(train_set, state_cols, action_col, weights, k=300):
+def estimate_behavior_policy(train_set, weights, k=300):
     """ kNN-based behavior policy estimation for OPE. Please refer to (Raghu et al., 2018) for details.
 
         train_set:     Path to preprocessed training set with states and chosen actions (by physisian)
-        state_cols:    Columns in train_set corresponding to state-space features
-        action_col:    Column in train_set corresponding to chosen action
         weights:       Importance weights to assign to each state-space feature
 
         returns:       Fitted kNN model and list of chosen actions (i.e. train_set[action_col])
     """
     # Load training set into DataFrame
-    train_df = pd.read_csv(train_set, usecols=state_cols + [action_col])
-    states = train_df[state_cols].values
-    actions = train_df[action_col].values
+    train_df = pd.read_csv(train_set)
+    states = train_df.filter(regex='x\d+').values
+    actions = train_df['action'].values
 
     i = np.arange(len(states))
     print('\nFitting KNN policy to %s states...' % len(i))
@@ -87,23 +85,19 @@ def estimate_behavior_policy(train_set, state_cols, action_col, weights, k=300):
     return knn
 
 
-def evaluate_policy(policy, dataset, state_cols, action_col, reward_col, episode_col, batch_size=128):
+def evaluate_policy(policy, dataset, batch_size=128):
     """ Applies policy to held-out dataset and estimates distribution over actions.
 
         policy:        kNN model fitted to physician actions
         dataset:       Dataset to evaluate policy on
-        state_cols:    Columns in dataset corresponding to state-space features
-        action_col:    Column in dataset corresponding to chosen action
-        reward_col:    Column in dataset corresponding to received reward
-        reward_col:    Column in dataset corresponding to episode number
         batch_size:    Size of batches used for evaluation (default: 128)
     """
     # Load train/valid/test set into DataFrame
-    df = pd.read_csv(dataset, usecols=state_cols + [action_col, reward_col, episode_col])
-    episode = df[episode_col].values
-    actions = df[action_col].values
-    rewards = df[reward_col].values
-    states = df[state_cols].values
+    df = pd.read_csv(dataset)
+    episode = df['episode'].values
+    actions = df['action'].values
+    rewards = df['reward'].values
+    states = df.filter(regex='x\d+').values
     indices = df.index.values
 
     action_probs = []
@@ -134,21 +128,18 @@ if __name__ == '__main__':
                 '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv',
                 '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_test.csv']
 
-    # Defines state and action space
-    STATE_COLS = ['max_vaso', 'total_iv_fluid', 'sirs_score', 'sofa_score', 'weight', 'ventilator', 'height', 'age',
-                  'gender', 'heart_rate', 'temp', 'mean_bp', 'dias_bp', 'sys_bp', 'resp_rate', 'spo2', 'natrium',
-                  'fio2', 'chloride', 'kalium', 'trombo', 'leu', 'anion_gap', 'aptt', 'art_ph', 'asat', 'alat',
-                  'bicarbonaat', 'art_be', 'ion_ca', 'lactate', 'paco2', 'pao2', 'shock_index', 'hb', 'bilirubin',
-                  'creatinine', 'inr', 'ureum', 'albumin', 'magnesium', 'calcium', 'pf_ratio', 'glucose',
-                  'total_urine_output', 'running_total_urine_output', 'running_total_iv_fluid']
-    EPISODE_COL = 'icustay_id'
-    ACTION_COL = 'action'
-    REWARD_COL = 'reward'
-
     # Assign certain features additional weight. Please refer to (Roggeveen et al., 2021).
     # Remark: In the original work, `chloride` is also up-weighted, but not in the code (why?)
-    SPECIAL_WEIGHTS = {'age': 2, 'lactate': 2, 'pf_ratio': 2, 'sofa_score': 2, 'weight': 2,
-                       'total_urine_output': 2, 'dias_bp': 2, 'mean_bp': 2, 'total_iv_fluid': 2}
+    SPECIAL_WEIGHTS = {'x7': 2,   # age
+                       'x29': 2,  # lactate
+                       'x43': 2,  # pf_ration
+                       'x3': 2,   # sofa_score
+                       'x4': 2,   # weight
+                       'x46': 2,  # total_urine_output
+                       'x12': 2,  # dias_bp
+                       'x11': 2,  # mean_bp
+                       'x1': 2}   # total_iv_fluid
+    STATE_COLS = ['x%d' % i for i in range(48)]
 
     #######################
     #   Estimate Policy   #
@@ -156,11 +147,11 @@ if __name__ == '__main__':
 
     # Step 1. Estimate behavior policy from training set
     weights = get_feature_weights(STATE_COLS, SPECIAL_WEIGHTS)
-    policy = estimate_behavior_policy(TRAIN_SET, STATE_COLS, ACTION_COL, weights=weights)
+    policy = estimate_behavior_policy(TRAIN_SET, weights=weights)
 
     # Step 2. Estimate action distribution of behavior policy over each dataset
     for dataset in DATASETS:
-        action_probs = evaluate_policy(policy, dataset, STATE_COLS, ACTION_COL, REWARD_COL, EPISODE_COL)
+        action_probs = evaluate_policy(policy, dataset)
 
         outfile = Path(dataset).stem
         action_probs.to_csv(outfile + '_behavior_policy.csv', index=False)
