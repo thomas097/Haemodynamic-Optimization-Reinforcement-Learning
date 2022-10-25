@@ -6,15 +6,15 @@ class PositionalEncoding(torch.nn.Module):
     """ Positional Encoding as used by (Vaswani et al., 2017)
         For details, please refer to https://arxiv.org/pdf/1706.03762.pdf
     """
-    def __init__(self, d_model):
+    def __init__(self, embedding_dim):
         super(PositionalEncoding, self).__init__()
         # Use GPU if available
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-        self._d_model = d_model
-        i = torch.arange(0, d_model, 2).unsqueeze(0).unsqueeze(0)
-        self._div_term = torch.exp(i * (-math.log(10000.0) / d_model)).to(self._device)
+        self._embedding_dim = embedding_dim
+        i = torch.arange(0, embedding_dim, 2, device=self._device).unsqueeze(0).unsqueeze(0)
+        self._div_term = torch.exp(i * (-math.log(10000.0) / embedding_dim))
 
     def forward(self, t):
         """ Converts a sequence of time steps into a sequence of positional embeddings
@@ -26,11 +26,11 @@ class PositionalEncoding(torch.nn.Module):
         position = t.to(self._device).unsqueeze(2)
         div_term = self._div_term.repeat(position.shape[0], 1, 1)  # Account for varying batch sizes!
 
-        out = torch.zeros(*t.shape, self._d_model)
-        outer = torch.bmm(position, div_term)
-        out[:, :, 0::2] = torch.sin(outer)
-        out[:, :, 1::2] = torch.cos(outer)
-        return out
+        pe = torch.zeros(*t.shape, self._embedding_dim, device=self._device)
+        outer_prod = torch.bmm(position, div_term)
+        pe[:, :, 0::2] = torch.sin(outer_prod)
+        pe[:, :, 1::2] = torch.cos(outer_prod)
+        return pe
 
 
 class TypeEncoding(torch.nn.Module):
@@ -64,8 +64,8 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
     t = torch.arange(128).float().unsqueeze(0)
-    pe = PositionalEncoding(d_model=64)
-    pe_t = pe(t).detach().numpy()
+    pe = PositionalEncoding(embedding_dim=64)
+    pe_t = pe(t.float()).detach().numpy()
 
     plt.matshow(pe_t[0])
     plt.title('Positional Encoding')
@@ -75,5 +75,5 @@ if __name__ == '__main__':
 
     # Sanity check: Does ItemEncoding work?
     x = torch.arange(64 * 18).reshape(64, 18) % 10
-    ie = ItemEncoding(vocab_size=10, embedding_dim=16)
+    ie = TypeEncoding(vocab_size=10, embedding_dim=16)
     assert ie(x).shape == (64, 18, 16)

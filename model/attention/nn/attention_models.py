@@ -15,12 +15,12 @@ class CausalTransformer(torch.nn.Module):
         by learnt embeddings and use sin/cos positional encoding to encode the chart-time.
         We feed the sum of embeddings (incl. the value) to a stack of causal self-attention encoders.
     """
-    def __init__(self, vocab_size, d_model, nhead=1, truncate=512, mask_layer=True):
+    def __init__(self, vocab_size, d_model, nheads=1, dk=16, truncate=128, mask_layer=True):
         super().__init__()
         # Positional- and TypeEncoding layers + Transformer Encoder
-        self._pos_encoding = PositionalEncoding(d_model)
-        self._type_encoding = TypeEncoding(vocab_size=vocab_size + 1, embedding_dim=d_model)  # +1 for padding
-        self._encoder = SelfAttentionBlock(d_model=d_model, nhead=nhead, max_len=truncate)
+        self._pos_encoding = PositionalEncoding(embedding_dim=d_model)
+        self._type_encoding = TypeEncoding(embedding_dim=d_model, vocab_size=vocab_size + 1)  # vocab + 1 for padding
+        self._encoder = SelfAttentionBlock(d_model=d_model, nheads=nheads, dk=dk, maxlen=truncate)
 
         self._truncate = truncate
         self._mask_layer = mask_layer
@@ -35,15 +35,14 @@ class CausalTransformer(torch.nn.Module):
         x_value = X[:, -self._truncate:, 1]
         x_pos = X[:, -self._truncate:, 2]
 
-        # Construct input Tensor
-        type_embedding = self._type_encoding(x_type.long())
-        pos_embedding = self._pos_encoding(x_pos)
+        # Construct input Tensor x encoding type, position and value
+        te = self._type_encoding(x_type.long())
+        pe = self._pos_encoding(x_pos)
+        x = te + pe
+        x[:, :, -1] = x_value  # Note: last channel is least corrupted by PE
 
-        inputs = type_embedding + pos_embedding
-        inputs[:, :, -1] = x_value  # Note: last channel is least corrupted by PE
+        # Mask out zero-padding using Boolean mask of shape (batch_size, seq_len, dk=1) with True -> padding
+        padding_mask = (x_type == 0).bool().unsqueeze(2).to(self._device)
 
-        # Mask out padding
-        padding_mask = (x_type == 0).bool().unsqueeze(1).repeat(1, x_type.shape[1], 1).to(self._device)  # TODO: mask out inter-type attentions
-
-        out = self._encoder(inputs, mask=padding_mask)
+        out = self._encoder(x, padding_mask=padding_mask)
         return out[:, -1] if return_last else out
