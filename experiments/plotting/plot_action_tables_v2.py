@@ -4,9 +4,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pickle
 
+from pathlib import Path
 from utils import *
 
 sns.set_theme(style="darkgrid")
+sns.set(rc={'figure.figsize': (12, 4)})
 
 
 def create_action_matrix(actions, action_to_bins, labels=range(5)):
@@ -18,7 +20,7 @@ def create_action_matrix(actions, action_to_bins, labels=range(5)):
     return pd.DataFrame(data=mat, columns=labels, index=labels).iloc[::-1]
 
 
-def main(model_paths, dataset_file, action_bin_file, start_at=0):
+def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
     dataset = pd.read_csv(dataset_file)
 
     # Mask out timesteps preceding `start_from`
@@ -33,9 +35,9 @@ def main(model_paths, dataset_file, action_bin_file, start_at=0):
     labels = ['Physician policy']
 
     # Create action matrix for learnt policies
-    for model_name, model_path in model_paths.items():
-        policy = load_pretrained(model_path, 'policy.pkl')
-        encoder = load_pretrained(model_path, 'encoder.pkl')
+    for model_name, model_path in paths.items():
+        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pkl')
+        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pkl')
 
         # Create action matrix of actions prescribed by policy
         model_actions = evaluate_on_dataset(encoder, policy, dataset, _type='actions')
@@ -64,16 +66,26 @@ def main(model_paths, dataset_file, action_bin_file, start_at=0):
         plt.title(label)
 
     plt.tight_layout()
+
+    # Save to file before showing
+    out_file = '%s_action_matrices_start=%s.pdf' % (Path(dataset_file).stem, start_at)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    plt.savefig(os.path.join(out_dir, out_file))
+
     plt.show()
 
 
 if __name__ == '__main__':
-    model_paths = {'CKCNN': '../results/ckcnn_experiment_2022-10-23_21-10-05',
-                   'Roggeveen et al.': '../results/roggeveen_experiment_2022-10-23_20-44-38'}
+    paths = {'Roggeveen et al.': 'roggeveen_experiment_2022-10-24_22-11-41',
+             'CKCNN': 'ckcnn_experiment_2022-10-24_22-30-20'}
+
+    in_dir = '../results/'
+    out_dir = '../figures/'
 
     dataset_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_test.csv'
     action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/action_to_vaso_fluid_bins.pkl'
 
-    main(model_paths, dataset_file, action_bin_file, start_at=6)  # t=6 -> estimated onset of sepsis
+    main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=6)  # t=6 -> estimated onset of sepsis
 
 

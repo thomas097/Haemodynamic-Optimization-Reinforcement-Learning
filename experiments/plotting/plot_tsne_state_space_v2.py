@@ -33,7 +33,7 @@ def main(model_path, dataset_path, feature):
     colors = value_to_color(dataset[feature].values)
 
     plt.scatter(X[:, 0], X[:, 1], color=colors)
-    plt.title('t-SNE plot of state space by %s' % FEATURE_NAME)
+    plt.title('t-SNE plot of state space by %s' % feature)
     plt.show()
 
 

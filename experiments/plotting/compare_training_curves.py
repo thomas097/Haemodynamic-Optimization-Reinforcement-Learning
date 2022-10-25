@@ -17,20 +17,33 @@ def num_episodes(path):
     return len(load_performance_metrics(path, 'loss'))
 
 
-def main(paths, metric):
+def main(in_dir, out_dir, paths, metric):
+    # Plot validation scores over training episodes
     for name, path in paths.items():
-        score = load_performance_metrics(path, metric=metric)
-        episode = np.linspace(0, num_episodes(path), score.shape[0])
+        full_path = os.path.join(in_dir, path)
+        score = load_performance_metrics(full_path, metric=metric)
+        episode = np.linspace(0, num_episodes(full_path), score.shape[0])
         plt.plot(episode, score, label=name, linewidth=1.7, alpha=0.7)
     plt.legend()
     plt.ylabel(metric)
     plt.xlabel('Episode')
+
+    # Save to file before showing
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    plt.savefig(os.path.join(out_dir, 'mimic-iii_valid_%s.pdf' % metric))
+
     plt.show()
 
 
 if __name__ == '__main__':
-    metric = 'wis'
-    paths = {'CKCNN': '../results/ckcnn_experiment_2022-10-23_21-10-05',
-             'Roggeveen et al.': '../results/roggeveen_experiment_2022-10-23_20-44-38'}
-    main(paths, metric)
+    metrics = ['wis', 'loss', 'phys_entropy', 'abs_TD_error']
+    paths = {'Roggeveen et al.': 'roggeveen_experiment_2022-10-24_22-11-41',
+             'CKCNN': 'ckcnn_experiment_2022-10-24_22-30-20'}
+
+    in_dir = '../results/'
+    out_dir = '../figures/'
+
+    for metric in metrics:
+        main(in_dir, out_dir, paths, metric)
 
