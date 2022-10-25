@@ -4,7 +4,7 @@ from sklearn.preprocessing import label_binarize
 
 
 class IS:
-    def __init__(self, behavior_policy_file, gamma=1.0):
+    def __init__(self, behavior_policy_file, gamma=1.0, drop_terminal_states=False):
         """ Implementation of the Stepwise Importance Sampling (IS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -13,19 +13,20 @@ class IS:
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor
         """
+        phys_df = pd.read_csv(behavior_policy_file)
+        if drop_terminal_states:
+            phys_df = phys_df[phys_df['reward'].notna()]
+
         # Actions taken by behavior policy (i.e. physician)
-        df = pd.read_csv(behavior_policy_file)
-        self.actions = np.expand_dims(df['action'], axis=1).astype(int)
+        self.actions = np.expand_dims(phys_df['action'], axis=1).astype(int)
 
         # Estimated action probabilities
-        self.pi_b = self._behavior_policy(df)
+        self.pi_b = self._behavior_policy(phys_df)
 
-        # Number of timesteps in episode
-        self.timesteps = df.groupby('episode').size().max()
-
-        # Reward function (drop terminal time steps without rewards)
-        self.rewards = self._to_table(df['reward'].values)
-        self.gamma = gamma
+        # Reward and discounting
+        self.timesteps = phys_df.groupby('episode').size().max()
+        self.rewards = self._to_table(phys_df['reward'].values)
+        self.gamma = np.power(gamma, np.arange(self.timesteps))[np.newaxis]
 
     @staticmethod
     def _behavior_policy(df):
@@ -33,7 +34,7 @@ class IS:
         return df.filter(regex='\d+').values.astype(np.float64)
 
     def _to_table(self, arr):
-        return np.nan_to_num(arr.reshape(-1, self.timesteps), nan=0.0)  # Replace NaNs in reward table
+        return np.nan_to_num(arr.reshape(-1, self.timesteps), nan=0.0)  # Replace NaNs in reward table by zeros
 
     def __call__(self, pi_e, return_weights=False):
         """ Computes the IS estimate of V^πe.
@@ -52,14 +53,11 @@ class IS:
         if return_weights:
             return ratio
 
-        # Compute gamma as a function of t
-        gamma = np.power(self.gamma, np.arange(self.timesteps))[np.newaxis]
-
-        return np.mean(np.sum(gamma * weights * self.rewards, axis=1))
+        return np.mean(np.sum(self.gamma * weights * self.rewards, axis=1))
 
 
 class WeightedIS(IS):
-    def __init__(self, behavior_policy_file, gamma=1.0):
+    def __init__(self, behavior_policy_file, gamma=1.0, drop_terminal_states=False):
         """ Implementation of the Stepwise Weighted Importance Sampling (WIS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -67,8 +65,9 @@ class WeightedIS(IS):
             behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor
+            drop_terminal_states: Whether to drop the final state in each episode (used by transformer)
         """
-        super().__init__(behavior_policy_file, gamma)
+        super().__init__(behavior_policy_file, gamma, drop_terminal_states)
 
     def __call__(self, pi_e, return_weights=False):
         """ Computes the WIS estimate of V^πe.
@@ -88,10 +87,7 @@ class WeightedIS(IS):
         if return_weights:
             return weights
 
-        # Compute gamma as a function of t
-        gamma = np.power(self.gamma, np.arange(self.timesteps))[np.newaxis]
-
-        return np.sum(gamma * weights * self.rewards)
+        return np.sum(self.gamma * weights * self.rewards)
 
 
 if __name__ == '__main__':
