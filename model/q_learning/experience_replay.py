@@ -1,7 +1,12 @@
 import pandas as pd
 import numpy as np
 import torch
-from keras.preprocessing.sequence import pad_sequences
+
+# Backward-compatibility with previous versions of keras
+try:
+    from keras.preprocessing.sequence import pad_sequences
+except:
+    from keras_preprocessing.sequence import pad_sequence
 
 
 class EvaluationReplay:
@@ -27,34 +32,30 @@ class EvaluationReplay:
 
     @staticmethod
     def _non_terminal_indices(df):
-        # Extract indices of all non-terminal states
+        # NaNs in 'reward' column mark absorbing terminal states
         indices = []
         for _, episode in df.groupby('episode'):
-            nan_rewards = episode['reward'].isna()  # NaN rewards indicate absorbing terminal states!
-            indices += episode.index[~nan_rewards].to_list()
+            indices += episode.index[episode.reward.notna()].to_list()
         return np.array(indices)
 
     def _consolidate_length(self, sequences, value=0):
-        # Use max_len=None to pad to max_len of sequences (not self._max_len set above!)
-        arr = pad_sequences(sequences, maxlen=None, dtype=np.float32, padding="pre", truncating="pre", value=value)
+        arr = pad_sequences(sequences, dtype=np.float32, padding="pre", truncating="pre", value=value)
         return torch.Tensor(arr)[:, -self._max_len:]
 
     def iterate(self, batch_size=128):
         for j in range(0, self._buffer_size, batch_size):
-            # Transitions into batches of `batch_size`
-            transitions = self._indices[j:j + batch_size]
+            batch_transitions = self._indices[j:j + batch_size]
 
             states = []
-            for i in transitions:
+            for i in batch_transitions:
                 # Extract states in the same episode `ep` up to and including timestep `ts`
                 if self._return_history:
                     ep = self._episodes[i]
                     ts = self._timesteps[i]
-                    history_i = (self._episodes == ep) & (self._timesteps <= ts)
+                    i_history = (self._episodes == ep) & (self._timesteps <= ts)
                 else:
-                    history_i = i  # ith state only
-
-                states.append(self._states[history_i])
+                    i_history = i
+                states.append(self._states[i_history])
 
             # If return_histories, consolidate their lengths
             if self._return_history:
@@ -100,11 +101,10 @@ class PrioritizedReplay:
 
     @staticmethod
     def _non_terminal_indices(df):
-        # Extract indices of all non-terminal states
+        # NaNs in 'reward' column mark absorbing terminal states
         indices = []
         for _, episode in df.groupby('episode'):
-            nan_rewards = episode['reward'].isna()  # NaN rewards indicate absorbing terminal states!
-            indices += episode.index[~nan_rewards].to_list()
+            indices += episode.index[episode.reward.notna()].to_list()
         return np.array(indices)
 
     def _to_index(self, transitions):
@@ -123,24 +123,23 @@ class PrioritizedReplay:
         self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors.cpu()).flatten()
 
     def _consolidate_length(self, sequences, value=0):
-        # Use max_len=None to pad to max_len of sequences (not self._max_len set above!)
-        arr = pad_sequences(sequences, maxlen=None, dtype=np.float32, padding="pre", truncating="pre", value=value)
+        arr = pad_sequences(sequences, dtype=np.float32, padding="pre", truncating="pre", value=value)
         return torch.Tensor(arr)[:, -self._max_len:]
 
     def sample(self, N):
         # Stochastically sampling of transitions (indices) from replay buffer
         probs = self._selection_probs()
-        transitions = np.random.choice(self._indices, size=N, replace=False, p=probs)
+        batch_transitions = np.random.choice(self._indices, size=N, replace=False, p=probs)
 
         # Compute importance sampling weights for Q-table update
-        imp_weights = self._importance_weights(transitions, probs)
+        imp_weights = self._importance_weights(batch_transitions, probs)
 
         states = []
         actions = []
         rewards = []
         next_states = []
 
-        for i in transitions:
+        for i in batch_transitions:
             # Extract states preceding transition `i` at time step `ts` in episode `ep` and next state at `ts + dt`
             if self._return_history:
                 ep = self._episodes[i]
@@ -159,7 +158,7 @@ class PrioritizedReplay:
             states = self._consolidate_length(states)
             next_states = self._consolidate_length(next_states)
         else:
-            states = torch.stack(states, dim=0)[:, 0]  # If no history, no need to keep track of temporal dim 2
+            states = torch.stack(states, dim=0)[:, 0]  # If no history, no need to keep track of temporal dimension
             next_states = torch.stack(next_states, dim=0)[:, 0]
 
         # Convert to torch Tensors and enable GPU devices
@@ -167,4 +166,4 @@ class PrioritizedReplay:
         rewards = torch.stack(rewards, dim=0)
         imp_weights = torch.Tensor(imp_weights).unsqueeze(1).to(self._device)
 
-        return states, actions, rewards, next_states, transitions, imp_weights
+        return states, actions, rewards, next_states, batch_transitions, imp_weights
