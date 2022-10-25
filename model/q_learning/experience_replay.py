@@ -1,45 +1,60 @@
 import pandas as pd
 import numpy as np
 import torch
-from torch.nn.functional import pad
+from keras.preprocessing.sequence import pad_sequences
 
 
 class EvaluationReplay:
     """ Implements a simple experience replay buffer which sequentially
-        iterates over a dataset returning batches of states.
+        iterates over a dataset returning batches of histories.
     """
-    def __init__(self, dataset, return_history=False):
-        # Extract states and episodes from dataset
-        states = dataset.filter(regex='x\d+').values
-        episodes = dataset.episode.values
-
+    def __init__(self, dataset, max_len=512, return_history=False):
         # Move states to GPU if available
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self._states = torch.Tensor(states).to(self._device)
 
-        self._episodes = episodes
-        self._indices = np.arange(episodes.shape[0])
-        self._buffer_size = episodes.shape[0]
+        dataset = dataset.reset_index(drop=True)
+        states = dataset.filter(regex='x\d+').values
+        self._states = torch.Tensor(states).to(self._device)
+        self._episodes = dataset.episode.values
+        self._timesteps = dataset.timestep.values
+
+        self._indices = self._non_terminal_indices(dataset)
+        self._buffer_size = self._indices.shape[0]
+        print('Evaluation dataset size: %d states' % self._buffer_size)
+
         self._return_history = return_history
+        self._max_len = max_len
 
     @staticmethod
-    def _consolidate_length(histories, val=0.0):  # TODO: sloooow but no built-in for this!
-        max_len = max([len(h) for h in histories])
-        padded_histories = [pad(h, (0, 0, max_len - len(h), 0), value=val).unsqueeze(0) for h in histories]
-        return torch.cat(padded_histories, dim=0)
+    def _non_terminal_indices(df):
+        # Extract indices of all non-terminal states
+        indices = []
+        for _, episode in df.groupby('episode'):
+            nan_rewards = episode['reward'].isna()  # NaN rewards indicate absorbing terminal states!
+            indices += episode.index[~nan_rewards].to_list()
+        return np.array(indices)
+
+    def _consolidate_length(self, sequences, value=0):
+        # Use max_len=None to pad to max_len of sequences (not self._max_len set above!)
+        arr = pad_sequences(sequences, maxlen=None, dtype=np.float32, padding="pre", truncating="pre", value=value)
+        return torch.Tensor(arr)[:, -self._max_len:]
 
     def iterate(self, batch_size=128):
         for j in range(0, self._buffer_size, batch_size):
-            # Batch of transitions
+            # Transitions into batches of `batch_size`
             transitions = self._indices[j:j + batch_size]
 
             states = []
             for i in transitions:
-                # Extract states up to and including transition `i` in the same episode
+                # Extract states in the same episode `ep` up to and including timestep `ts`
                 if self._return_history:
-                    states.append(self._states[(self._episodes == self._episodes[i]) & (self._indices <= i)])
+                    ep = self._episodes[i]
+                    ts = self._timesteps[i]
+                    history_i = (self._episodes == ep) & (self._timesteps <= ts)
                 else:
-                    states.append(self._states[i])  # ith state only
+                    history_i = i  # ith state only
+
+                states.append(self._states[history_i])
 
             # If return_histories, consolidate their lengths
             if self._return_history:
@@ -53,7 +68,7 @@ class PrioritizedReplay:
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, dataset, alpha=0.6, beta0=0.4, eps=1e-2, return_history=False):
+    def __init__(self, dataset, alpha=0.6, beta0=0.4, eps=1e-2, dt='4h', max_len=512, return_history=False):
         # Create single DataFrame with episode and timestep information.
         self._dataset = dataset.reset_index(drop=True)
         states = self._dataset.filter(regex='x\d+').values  # state space is marked by 'x*'
@@ -69,6 +84,10 @@ class PrioritizedReplay:
         # Determines indices of non-terminal states in df
         self._indices = self._non_terminal_indices(self._dataset)
 
+        # USed to find states prior to t and dt ahead (next step)
+        self._timestep = pd.to_datetime(self._dataset.timestep).values
+        self._episodes = self._dataset.episode.values
+
         self._buffer_size = len(self._indices)
         self._TD_errors = np.ones(self._buffer_size) * 1e16  # Big numbers ensure all states are sampled at least once
 
@@ -76,6 +95,8 @@ class PrioritizedReplay:
         self._beta0 = beta0
         self._eps = eps
         self._return_history = return_history
+        self._max_len = max_len
+        self._dt = pd.to_timedelta(dt)
 
     @staticmethod
     def _non_terminal_indices(df):
@@ -101,11 +122,10 @@ class PrioritizedReplay:
     def update_priority(self, transitions, td_errors):
         self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors.cpu()).flatten()
 
-    @staticmethod
-    def _consolidate_length(histories, val=0.0):  # TODO: sloooow but no built-in for this!
-        max_len = max([len(h) for h in histories])
-        padded_histories = [pad(h, (0, 0, max_len - len(h), 0), value=val).unsqueeze(0) for h in histories]
-        return torch.cat(padded_histories, dim=0)
+    def _consolidate_length(self, sequences, value=0):
+        # Use max_len=None to pad to max_len of sequences (not self._max_len set above!)
+        arr = pad_sequences(sequences, maxlen=None, dtype=np.float32, padding="pre", truncating="pre", value=value)
+        return torch.Tensor(arr)[:, -self._max_len:]
 
     def sample(self, N):
         # Stochastically sampling of transitions (indices) from replay buffer
@@ -121,18 +141,18 @@ class PrioritizedReplay:
         next_states = []
 
         for i in transitions:
-
-            # Extract states preceding transition `i` in episode + next state
+            # Extract states preceding transition `i` at time step `ts` in episode `ep` and next state at `ts + dt`
             if self._return_history:
-                ep = self._dataset.loc[i]['episode']
-                history_idx = ((self._dataset['episode'] == ep) & (self._dataset.index <= i + 1)).values
+                ep = self._episodes[i]
+                ts = self._timestep[i]
+                i_history = (self._episodes == ep) & (self._timestep <= ts + self._dt)
             else:
-                history_idx = np.array([i, i + 1])  # -> history + next state!
+                i_history = np.array([i, i + 1])  # -> history + next state!
 
-            states.append(self._states[history_idx][:-1])
+            states.append(self._states[i_history][:-1])
             actions.append(self._actions[i])
             rewards.append(self._rewards[i])
-            next_states.append(self._states[history_idx][1:])
+            next_states.append(self._states[i_history][1:])
 
         # If return_histories, consolidate their lengths
         if self._return_history:

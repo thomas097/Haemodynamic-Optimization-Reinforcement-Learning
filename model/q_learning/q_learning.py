@@ -83,13 +83,13 @@ class DQN(torch.nn.Module):
         return actions.cpu().detach().numpy()
 
 
-def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, lamda=1e-3, eval_func=None,
+def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, eval_func=None,
                    eval_after=100, batch_size=32, replay_params=(0.0, 0.4), scheduler_gamma=0.9, step_scheduler_after=100,
-                   encoder=None, freeze_encoder=False, min_max_reward=(-1, 1), lamda_physician=0.0, save_on=None):
+                   encoder=None, freeze_encoder=False, min_max_reward=(-1, 1), lamda_reward=1e-3, lamda_phys=0.0, save_on=None):
 
     # Load dataset into replay buffer
     uses_encoder = encoder is not None
-    replay_buffer = PrioritizedReplay(dataset, return_history=uses_encoder, alpha=replay_params[0], beta0=replay_params[1])
+    replay_buffer = PrioritizedReplay(dataset, alpha=replay_params[0], beta0=replay_params[1], dt=dt, return_history=uses_encoder)
 
     # Adam optimizer with policy and encoder (if provided)
     modules = torch.nn.ModuleList([policy])
@@ -152,8 +152,10 @@ def fit_double_dqn(experiment, policy, dataset, num_episodes=1, alpha=1e-3, gamm
 
         # Loss + regularization
         loss = weighted_MSE_loss(q_pred, q_target, weights)
-        loss += lamda * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
-        loss += lamda_physician * physician_regularizer(q_vals, actions)
+        if lamda_reward > 0:
+            loss += lamda_reward * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
+        if lamda_phys > 0:
+            loss += lambda_phys * physician_regularizer(q_vals, actions)
 
         # Policy update
         optimizer.zero_grad()
