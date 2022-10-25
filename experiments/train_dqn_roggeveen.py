@@ -13,7 +13,8 @@ from physician import Physician
 
 
 class OPECallback:
-    """ Callback to compute a WIS estimate of V^πe during training
+    """
+        Callback to compute a WIS estimate of V^πe during training
         and the CE loss between model and physician action probabilities
     """
     def __init__(self, behavior_policy_file, valid_data):
@@ -44,17 +45,17 @@ if __name__ == '__main__':
     fit_double_dqn(experiment='results/roggeveen_experiment',
                    policy=dqn_model,
                    dataset=train_df,
+                   dt='4h',  # Time between `t` and `t + 1`
                    alpha=1e-4,
                    gamma=0.9,
-                   lamda=5,
                    tau=1e-4,
-                   num_episodes=30000,
+                   lamda_reward=5,
+                   num_episodes=50000,
                    batch_size=32,
                    replay_params=(0.4, 0.6),  # was (0.6, 0.9)
                    eval_func=callback,
                    eval_after=250,
                    scheduler_gamma=0.95,
-                   step_scheduler_after=2000,
+                   step_scheduler_after=10000,
                    min_max_reward=(-15, 15),
-                   lamda_physician=0.0,
                    save_on='wis')  # Save best performing model found during training!
