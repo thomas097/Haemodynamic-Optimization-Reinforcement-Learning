@@ -8,7 +8,8 @@ class StateConcatenation(torch.nn.Module):
     (Mnih et al., 2016)
     """
     def __init__(self, k=2):
-        super().__init__()
+        super(StateConcatenation, self).__init__()
+        self.args = locals()
         self._k = k
 
     def forward(self, history):
@@ -25,33 +26,38 @@ class StateConcatenation(torch.nn.Module):
         return history.reshape(-1, self._k * history.shape[2])
 
 
+class CausalConv1d(torch.nn.Module):
+    """ Implementation of a Causal Convolution layer
+    """
+    def __init__(self, in_channels, out_channels, kernel_size, dilation, include_current=True):
+        super(CausalConv1d, self).__init__()
+        self._conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation)
+        self._relu = torch.nn.LeakyReLU()
+
+        # For details see https://jmtomczak.github.io/blog/2/2_ARM.html
+        self._include_current = include_current
+        self._left_padding = (kernel_size - 1) * dilation + 1 * (not include_current)
+
+    def _causal_padding(self, x):
+        return F.pad(x, [self._left_padding, 0], value=0.0)
+
+    def forward(self, x):
+        padded_x = self._causal_padding(x)
+        conv_x = self._conv(padded_x)
+        return conv_x if self._include_current else conv_x[:, :, :-1]
+
+
 class CausalCNN(torch.nn.Module):
     """
     Implementation of a Causal Convolutional Network (`CausalCNN`) based
     on dilated causal convolutions (implemented by `CausalConv1d`).
     See https://arxiv.org/pdf/1609.03499v2.pdf for details.
     """
-    class CausalConv1d(torch.nn.Module):
-        def __init__(self, in_channels, out_channels, kernel_size, dilation, include_current=True):
-            super().__init__()
-            self._conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation)
-            self._relu = torch.nn.LeakyReLU()
-
-            # For details see https://jmtomczak.github.io/blog/2/2_ARM.html
-            self._include_current = include_current
-            self._left_padding = (kernel_size - 1) * dilation + 1 * (not include_current)
-
-        def _causal_padding(self, x):
-            return F.pad(x, [self._left_padding, 0], value=0.0)
-
-        def forward(self, x):
-            padded_x = self._causal_padding(x)
-            conv_x = self._conv(padded_x)
-            return conv_x if self._include_current else conv_x[:, :, :-1]
-
     def __init__(self, layer_channels=(32, 32), kernel_sizes=(12,), dilations=(1,)):
         """ Constructor of the CausalConv1D """
-        super().__init__()
+        super(CausalCNN, self).__init__()
+        self.args = locals()
+
         # Force kernel sizes to be odd
         self._kernel_sizes = [k + 1 if k % 2 == 0 else k for k in kernel_sizes]
 
@@ -66,7 +72,7 @@ class CausalCNN(torch.nn.Module):
         self._model = torch.nn.Sequential(*layers)
 
     def forward(self, history, return_last=True):
-        y = self._model(history.permute(0, 2, 1)).permute(0, 2, 1)  # Conv1D expects (batch_size, in_channels, seq_length)
+        y = self._model(history.permute(0, 2, 1)).permute(0, 2, 1)  # Note: Conv1D expects (batch_size, in_channels, seq_length)
         return y[:, -1] if return_last else y
 
 
@@ -77,7 +83,8 @@ class LSTM(torch.nn.Module):
     See https://arxiv.org/pdf/1507.06527.pdf for details.
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1, batch_size=32):
-        super().__init__()
+        super(LSTM, self).__init__()
+        self.args = locals()
         self._model = torch.nn.LSTM(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                     bias=True, batch_first=True)
         self._h0 = torch.nn.Parameter(torch.randn((num_layers, 1, hidden_dims)))
@@ -95,7 +102,8 @@ class GRU(torch.nn.Module):
     Implementation of a Gated Recurrent Unit (GRU)
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
-        super().__init__()
+        super(GRU, self).__init__()
+        self.args = locals()
         self._model = torch.nn.GRU(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                    bias=True, batch_first=True)
         self._h0 = torch.nn.Parameter(torch.randn((num_layers, 1, hidden_dims)))
@@ -113,7 +121,8 @@ class EncoderDecoderLSTM(torch.nn.Module):
     See https://github.com/xuefeng7/Improving-Sepsis-Treatment-Strategies for details
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
-        super().__init__()
+        super(EncoderDecoderLSTM, self).__init__()
+        self.args = locals()
         self._encoder = torch.nn.LSTM(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                       bias=True, batch_first=True)
         self._decoder = torch.nn.LSTM(input_size=hidden_dims, hidden_size=state_dim, num_layers=num_layers,
@@ -135,7 +144,8 @@ class GRUdT(torch.nn.Module):
     https://proceedings.neurips.cc/paper/2020/file/4a5876b450b45371f6cfe5047ac8cd45-Paper.pdf
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
-        super().__init__()
+        super(GRUdT, self).__init__()
+        self.args = locals()
         self._model = torch.nn.GRU(input_size=state_dim + 1, hidden_size=hidden_dims, num_layers=num_layers,
                                    bias=True, batch_first=True)
 
