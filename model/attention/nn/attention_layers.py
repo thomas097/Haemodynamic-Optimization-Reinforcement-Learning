@@ -67,7 +67,7 @@ class SelfAttentionBlock(torch.nn.Module):
     """
         Self-Attention Block with residual connections and LayerNorm
     """
-    def __init__(self, d_model, nheads=1, dk=16, maxlen=512):
+    def __init__(self, d_model, out_channels, nheads=1, dk=16, maxlen=512):
         super(SelfAttentionBlock, self).__init__()
         # If only one head is used, directly use CausalLinearAttention (wee bit faster)
         if nheads < 2:
@@ -75,16 +75,20 @@ class SelfAttentionBlock(torch.nn.Module):
         else:
             self._attn = MultiHeadSelfAttention(d_model, nheads=nheads, dk=dk, maxlen=maxlen)
 
-        self._feed_forward = torch.nn.Linear(d_model, d_model)
+        self._linear = torch.nn.Linear(d_model, out_channels)
         self._layer_norm = torch.nn.LayerNorm(d_model)
+        self._leaky_relu = torch.nn.LeakyReLU()
 
         # Use GPU if available
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-    def forward(self, x, padding_mask=None):
+    def forward(self, x, padding_mask=None, return_last=False):
         h = self._layer_norm(self._attn(x, padding_mask) + x)
-        return self._feed_forward(h)
+
+        # If return_last, feed only last step through Linear (faster)
+        y = self._linear(h[:, -1]) if return_last else self._linear(h)
+        return self._leaky_relu(y)
 
 
 if __name__ == '__main__':

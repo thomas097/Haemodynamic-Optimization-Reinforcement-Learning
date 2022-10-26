@@ -34,7 +34,7 @@ class PositionalEncoding(torch.nn.Module):
 
 
 class TypeEncoding(torch.nn.Module):
-    def __init__(self, vocab_size, embedding_dim=32):
+    def __init__(self, embedding_dim, vocab_size):
         """ TypeEncoding layer which takes a 2D-array of measurement type IDs
             of shape (batch_size, timesteps) and convert it into a tensor of
             embeddings of size (batch_size, timesteps, embedding_dim).

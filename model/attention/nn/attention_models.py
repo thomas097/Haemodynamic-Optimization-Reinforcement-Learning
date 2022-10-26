@@ -15,34 +15,35 @@ class CausalTransformer(torch.nn.Module):
         by learnt embeddings and use sin/cos positional encoding to encode the chart-time.
         We feed the sum of embeddings (incl. the value) to a stack of causal self-attention encoders.
     """
-    def __init__(self, vocab_size, d_model, nheads=1, dk=16, truncate=128, mask_layer=True):
-        super().__init__()
-        # Positional- and TypeEncoding layers + Transformer Encoder
-        self._pos_encoding = PositionalEncoding(embedding_dim=d_model)
-        self._type_encoding = TypeEncoding(embedding_dim=d_model, vocab_size=vocab_size + 1)  # vocab + 1 for padding
-        self._encoder = SelfAttentionBlock(d_model=d_model, nheads=nheads, dk=dk, maxlen=truncate)
-
+    def __init__(self, vocab_size, d_model, out_channels, nheads=1, dk=16, truncate=256):
+        super(CausalTransformer, self).__init__()
+        self.args = locals()
         self._truncate = truncate
-        self._mask_layer = mask_layer
+
+        # Positional- and TypeEncoding layers + Transformer Encoder
+        self._pos_encoding = PositionalEncoding(d_model)
+        self._type_encoding = TypeEncoding(d_model, vocab_size=vocab_size + 1)  # vocab + 1 for padding
+        self._value_encoding = torch.nn.Linear(1, d_model)
+        self._encoder = SelfAttentionBlock(d_model, out_channels, nheads=nheads, dk=dk, maxlen=truncate) # map immediately to out_channels
 
         # Use GPU if available
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-    def forward(self, X, return_last=True):
+    def forward(self, x, return_last=True):
         # Unpack input as sequence of (type, value, timestep) tuples of at most max_len
-        x_type = X[:, -self._truncate:, 0]
-        x_value = X[:, -self._truncate:, 1]
-        x_pos = X[:, -self._truncate:, 2]
+        x_type = x[:, -self._truncate:, 0]
+        x_value = x[:, -self._truncate:, [1]]
+        x_pos = x[:, -self._truncate:, 2]
 
         # Construct input Tensor x encoding type, position and value
         te = self._type_encoding(x_type.long())
         pe = self._pos_encoding(x_pos)
-        x = te + pe
-        x[:, :, -1] = x_value  # Note: last channel is least corrupted by PE
+        ve = self._value_encoding(x_value)
+        inputs = te + pe + ve
 
         # Mask out zero-padding using Boolean mask of shape (batch_size, seq_len, dk=1) with True -> padding
         padding_mask = (x_type == 0).bool().unsqueeze(2).to(self._device)
 
-        out = self._encoder(x, padding_mask=padding_mask)
-        return out[:, -1] if return_last else out
+        # Forward pass through transformer
+        return self._encoder(inputs, padding_mask=padding_mask, return_last=return_last)
