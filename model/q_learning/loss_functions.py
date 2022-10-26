@@ -26,3 +26,15 @@ def physician_regularizer(q_vals, true_actions):
     ce = torch.nn.CrossEntropyLoss()
     pred_action_probs = torch.softmax(q_vals, dim=1)
     return ce(pred_action_probs, true_actions[:, 0])
+
+
+def conservative_regularizer(q_all, q_chosen_actions):
+    """
+        Applies a conservative Q-learning regularizer to minimize over-estimation of
+        Out-Of-Distribution (OOD) actions (underlying catastrophic collapse during training)
+        For details, see:
+        (Kumar et al., 2020) CQL: https://arxiv.org/pdf/2006.04779.pdf
+        OR
+        (Kaushik et al., 2022) CQL for sepsis: https://arxiv.org/pdf/2006.04779.pdf
+    """
+    return torch.mean(torch.log(torch.sum(torch.exp(q_all), dim=1)) - q_chosen_actions[:, 0])

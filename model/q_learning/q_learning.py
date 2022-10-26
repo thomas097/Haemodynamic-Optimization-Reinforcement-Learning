@@ -8,8 +8,6 @@ from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
 from loss_functions import *
 
-INF = 1e5
-
 
 class DuelingLayer(torch.nn.Module):
     """ Implementation of a `Dueling` layer, separating state-
@@ -17,7 +15,7 @@ class DuelingLayer(torch.nn.Module):
         Q(s, a) = V(s) + [A(s, a) - mean_a(A(s, a))]
     """
     def __init__(self, input_dim, output_dim):
-        super().__init__()
+        super(DuelingLayer, self).__init__()
         self._val = torch.nn.Linear(input_dim, 1)
         self._adv = torch.nn.Linear(input_dim, output_dim)
 
@@ -34,6 +32,7 @@ class DQN(torch.nn.Module):
     """
     def __init__(self, state_dim=10, hidden_dims=(), num_actions=2, dueling=True):
         super(DQN, self).__init__()
+        self.args = locals()
 
         # Shared feature network
         shape = (state_dim,) + hidden_dims
@@ -83,29 +82,32 @@ class DQN(torch.nn.Module):
         return actions.cpu().detach().numpy()
 
 
-def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, eval_func=None,
-                   eval_after=100, batch_size=32, replay_params=(0.0, 0.4), scheduler_gamma=0.9, step_scheduler_after=100,
-                   encoder=None, freeze_encoder=False, min_max_reward=(-1, 1), lamda_reward=1e-3, lamda_phys=0.0, save_on=None):
+def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, replay_params=(0.0, 0.4),
+                   batch_size=32, scheduler_gamma=0.9, step_scheduler_after=100, encoder=None, freeze_encoder=False, lambda_reward=5,
+                   lambda_phys=0.0, lambda_consv=0.5, eval_func=None, eval_after=100, min_max_reward=(-15, 15), save_on=None):
+
+    # Track performance and hyperparameters
+    tracker = PerformanceTracker(experiment)
+    config = {**locals(), **policy.args} if encoder is None else {**locals(), **policy.args, **encoder.args}
+    tracker.save_experiment_config(config)
 
     # Load dataset into replay buffer
-    uses_encoder = encoder is not None
-    replay_buffer = PrioritizedReplay(dataset, alpha=replay_params[0], beta0=replay_params[1], dt=dt, return_history=uses_encoder)
+    replay_buffer = PrioritizedReplay(dataset, alpha=replay_params[0], beta0=replay_params[1], dt=dt,
+                                      return_history=encoder is not None)
 
-    # Adam optimizer with policy and encoder (if provided)
+    # Adam optimizer with policy and encoder (if provided) and lr scheduler
     modules = torch.nn.ModuleList([policy])
-    if uses_encoder:
+    if encoder is not None:
         modules.append(encoder)
     optimizer = torch.optim.Adam(modules.parameters(), lr=alpha)
-
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
-    tracker = PerformanceTracker(experiment)
 
     # Use target network for stability
     policy_target = copy.deepcopy(policy)
-    encoder_target = copy.deepcopy(encoder) if uses_encoder else None
+    encoder_target = copy.deepcopy(encoder)
 
     # Freeze encoder (optional)
-    if uses_encoder and freeze_encoder:
+    if encoder is not None and freeze_encoder:
         for param in encoder.parameters():
             param.requires_grad = False
         print('Freezing encoder...')
@@ -121,7 +123,7 @@ def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1
     # Enable training mode for policy; disable for its target
     policy.train()
     policy_target.eval()
-    if uses_encoder:
+    if encoder is not None:
         encoder.train()
         encoder_target.eval()
 
@@ -131,13 +133,13 @@ def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1
         states, actions, rewards, next_states, transitions, weights = replay_buffer.sample(N=batch_size)
 
         # Estimate Q(s, a) with s optionally encoded from s_0:t-1
-        states = encoder(states) if uses_encoder else states
+        states = encoder(states) if encoder is not None else states
         q_vals = policy(states)
         q_pred = q_vals.gather(dim=1, index=actions)
 
         with torch.no_grad():
             # Bootstrap Q(s', a') with s' optionally a function of s_0:t
-            next_states = encoder_target(next_states) if uses_encoder else next_states
+            next_states = encoder_target(next_states) if encoder is not None else next_states
             next_target_state_value = policy_target(next_states)
 
             # Clamp to min/max reward
@@ -151,11 +153,13 @@ def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1
             q_target = rewards + gamma * reward_mask * next_target_state_value.gather(dim=1, index=next_model_action)
 
         # Loss + regularization
-        loss = weighted_MSE_loss(q_pred, q_target, weights)
-        if lamda_reward > 0:
-            loss += lamda_reward * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
-        if lamda_phys > 0:
-            loss += lambda_phys * physician_regularizer(q_vals, actions)
+        loss = weighted_Huber_loss(q_pred, q_target, weights)
+        if lambda_reward > 0:
+            loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
+        if lambda_phys > 0:
+            loss += lambbda_phys * physician_regularizer(q_vals, actions)
+        if lambda_consv > 0:
+            loss += lambda_consv * conservative_regularizer(q_vals, q_pred)
 
         # Policy update
         optimizer.zero_grad()
@@ -167,7 +171,7 @@ def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1
             for policy_target_w, policy_w in zip(policy_target.parameters(), policy.parameters()):
                 policy_target_w.data = ((1 - tau) * policy_target_w.data + tau * policy_w.data).clone()
 
-            if uses_encoder:
+            if encoder is not None:
                 for encoder_target_w, encoder_w in zip(encoder_target.parameters(), encoder.parameters()):
                     encoder_target_w.data = ((1 - tau) * encoder_target_w.data + tau * encoder_w.data).clone()
 
@@ -184,13 +188,13 @@ def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1
         ############################
 
         tracker.add(loss=loss.item())
-        tracker.add(avg_Q_value=torch.mean(q_vals[q_vals > -INF]).item())  # Drop impossible actions 1-4 with -inf Q-values
+        tracker.add(avg_Q_value=torch.mean(q_vals).item())  # Drop impossible actions 1-4 with -inf Q-values
         tracker.add(abs_TD_error=torch.mean(td_error))
         tracker.add(avg_imp_weight=torch.mean(weights))
 
         if episode % eval_after == 0:
             if eval_func:
-                eval_args = (encoder, policy) if uses_encoder else (policy, )
+                eval_args = (encoder, policy) if encoder is not None else (policy,)
                 tracker.add(**eval_func(*eval_args))
 
             tracker.save_metrics()
