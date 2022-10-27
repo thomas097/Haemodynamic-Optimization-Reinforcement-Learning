@@ -4,7 +4,7 @@ import torch
 
 
 class Physician:
-    def __init__(self, behavior_policy_file):
+    def __init__(self, behavior_policy_file, drop_terminal_states=True):
         """ Compares the output action probabilities to those by the physician using cross-entropy.
 
             Params
@@ -12,8 +12,10 @@ class Physician:
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
         """
         # Distribution over actions of behavior policy (i.e. physician)
-        df = pd.read_csv(behavior_policy_file)
-        self._pi_b = self._behavior_policy(df)
+        phys_df = pd.read_csv(behavior_policy_file)
+        if drop_terminal_states:
+            phys_df = phys_df[phys_df['reward'].notna()]
+        self._pi_b = self._behavior_policy(phys_df)
         self._loss = torch.nn.CrossEntropyLoss()
 
     @staticmethod

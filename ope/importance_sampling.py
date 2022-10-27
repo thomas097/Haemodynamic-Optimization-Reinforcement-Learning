@@ -4,7 +4,7 @@ from sklearn.preprocessing import label_binarize
 
 
 class IS:
-    def __init__(self, behavior_policy_file, gamma=1.0, drop_terminal_states=False):
+    def __init__(self, behavior_policy_file, gamma=1.0, drop_terminal_states=True):
         """ Implementation of the Stepwise Importance Sampling (IS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -12,6 +12,7 @@ class IS:
             behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor
+            drop_terminal_states: Whether to discard absorbing terminal states without rewards (default: True)
         """
         phys_df = pd.read_csv(behavior_policy_file)
         if drop_terminal_states:
@@ -57,7 +58,7 @@ class IS:
 
 
 class WeightedIS(IS):
-    def __init__(self, behavior_policy_file, gamma=1.0, drop_terminal_states=False):
+    def __init__(self, behavior_policy_file, gamma=1.0, drop_terminal_states=True):
         """ Implementation of the Stepwise Weighted Importance Sampling (WIS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -65,7 +66,7 @@ class WeightedIS(IS):
             behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor
-            drop_terminal_states: Whether to drop the final state in each episode (used by transformer)
+            drop_terminal_states: Whether to discard absorbing terminal states without rewards (default: True)
         """
         super().__init__(behavior_policy_file, gamma, drop_terminal_states)
 
@@ -93,6 +94,7 @@ class WeightedIS(IS):
 if __name__ == '__main__':
     # Behavior policy
     behavior_df = pd.read_csv('physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv')
+    behavior_df = behavior_df[behavior_df['reward'].notna()]
     behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
 
     # Random policy
