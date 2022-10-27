@@ -46,8 +46,8 @@ def count_parameters(model):
 
 if __name__ == '__main__':
     # Load training and validation data
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
+    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
+    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
     print('train.size = %s  valid.size = %s' % (len(train_df) // 18, len(valid_df) // 18))
 
     # Setup encoder model
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     print('DQN parameters:  ', count_parameters(dqn))
 
     # Handles intermittent evaluation using OPE on validation set
-    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
+    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
     # Fit model
     fit_double_dqn(experiment='results/ckcnn_experiment',
@@ -67,15 +67,15 @@ if __name__ == '__main__':
                    encoder=encoder,
                    dataset=train_df,
                    dt='4h',  # Time between `t` and `t + 1`
-                   alpha=1e-4,
+                   lrate=1e-4,
                    gamma=0.9,
                    tau=1e-4,
-                   lamda_reward=5,
+                   lambda_reward=5,
                    num_episodes=50000,
                    batch_size=32,
-                   replay_params=(0.4, 0.6),  # was (0.6, 0.9)
                    eval_func=callback,
                    eval_after=250,
+                   replay_alpha=0.0,
                    scheduler_gamma=0.95,
                    step_scheduler_after=10000,
                    min_max_reward=(-15, 15),

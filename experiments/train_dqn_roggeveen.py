@@ -21,7 +21,9 @@ class OPECallback:
         # Load behavior policy that was used to sample validation set
         self._wis = WeightedIS(behavior_policy_file)
         self._phys = Physician(behavior_policy_file)
-        self._states = valid_data.filter(regex='x\d+').values
+
+        # Evaluate on non-terminals states!
+        self._states = valid_data[valid_data.reward.notna()].filter(regex='x\d+').values
 
     def __call__(self, policy):
         action_probs = policy.action_probs(self._states)
@@ -31,12 +33,12 @@ class OPECallback:
 
 if __name__ == '__main__':
     # Training and validation data
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
+    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
+    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
     print('train.size = %s  valid.size = %s' % (len(train_df) // 18, len(valid_df) // 18))
 
     # Evaluation callback using OPE
-    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
+    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
 
     # Optimize DQN model (Note: disallow marks impossible actions)
@@ -46,16 +48,16 @@ if __name__ == '__main__':
                    policy=dqn_model,
                    dataset=train_df,
                    dt='4h',  # Time between `t` and `t + 1`
-                   alpha=1e-4,
+                   lrate=1e-4,
                    gamma=0.9,
                    tau=1e-4,
-                   lamda_reward=5,
+                   lambda_reward=5,
                    num_episodes=50000,
                    batch_size=32,
-                   replay_params=(0.4, 0.6),  # was (0.6, 0.9)
                    eval_func=callback,
                    eval_after=250,
                    scheduler_gamma=0.95,
                    step_scheduler_after=10000,
                    min_max_reward=(-15, 15),
+                   lambda_consv=0.5,
                    save_on='wis')  # Save best performing model found during training!
