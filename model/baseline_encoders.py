@@ -4,8 +4,8 @@ import torch.nn.functional as F
 
 class StateConcatenation(torch.nn.Module):
     """
-    Concatenates previous K-1 states to the current state
-    (Mnih et al., 2016)
+        Concatenates previous K-1 states to the current state
+        (Mnih et al., 2016)
     """
     def __init__(self, k=2):
         super(StateConcatenation, self).__init__()
@@ -27,14 +27,14 @@ class StateConcatenation(torch.nn.Module):
 
 
 class CausalConv1d(torch.nn.Module):
-    """ Implementation of a Causal Convolution layer
+    """
+        Implementation of a Causal Convolutional layer
+        For details, see https://jmtomczak.github.io/blog/2/2_ARM.html
     """
     def __init__(self, in_channels, out_channels, kernel_size, dilation, include_current=True):
         super(CausalConv1d, self).__init__()
         self._conv = torch.nn.Conv1d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation)
-        self._relu = torch.nn.LeakyReLU()
 
-        # For details see https://jmtomczak.github.io/blog/2/2_ARM.html
         self._include_current = include_current
         self._left_padding = (kernel_size - 1) * dilation + 1 * (not include_current)
 
@@ -49,9 +49,9 @@ class CausalConv1d(torch.nn.Module):
 
 class CausalCNN(torch.nn.Module):
     """
-    Implementation of a Causal Convolutional Network (`CausalCNN`) based
-    on dilated causal convolutions (implemented by `CausalConv1d`).
-    See https://arxiv.org/pdf/1609.03499v2.pdf for details.
+        Implementation of a Causal Convolutional Network (`CausalCNN`) based
+        on dilated causal convolutions (implemented by `CausalConv1d`).
+        See https://arxiv.org/pdf/1609.03499v2.pdf for details.
     """
     def __init__(self, layer_channels=(32, 32), kernel_sizes=(12,), dilations=(1,)):
         """ Constructor of the CausalConv1D """
@@ -68,7 +68,8 @@ class CausalCNN(torch.nn.Module):
         layers = []
         for i, kernel_size in enumerate(self._kernel_sizes):
             conv = CausalConv1d(layer_channels[i], layer_channels[i + 1], kernel_size, dilation=dilations[i])
-            layers.append(conv)
+            relu = torch.nn.LeakyReLU()
+            layers.extend([conv, relu])
         self._model = torch.nn.Sequential(*layers)
 
     def forward(self, history, return_last=True):
@@ -78,9 +79,9 @@ class CausalCNN(torch.nn.Module):
 
 class LSTM(torch.nn.Module):
     """
-    Implementation of a Long-Short Term Memory (LSTM) network
-    (Hochreiter et al., 1997) as used by (Hausknecht et al., 2017).
-    See https://arxiv.org/pdf/1507.06527.pdf for details.
+        Implementation of the Long-Short Term Memory (LSTM) network
+        (Hochreiter et al., 1997) used in (Hausknecht et al., 2017).
+        See https://arxiv.org/pdf/1507.06527.pdf
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1, batch_size=32):
         super(LSTM, self).__init__()
@@ -98,8 +99,7 @@ class LSTM(torch.nn.Module):
 
 
 class GRU(torch.nn.Module):
-    """
-    Implementation of a Gated Recurrent Unit (GRU)
+    """ Gated Recurrent Unit (GRU) network
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super(GRU, self).__init__()
@@ -116,9 +116,8 @@ class GRU(torch.nn.Module):
 
 class EncoderDecoderLSTM(torch.nn.Module):
     """
-    Feeds histories through an LSTM encoder-decoder network as
-    proposed by (Peng et al., 2019).
-    See https://github.com/xuefeng7/Improving-Sepsis-Treatment-Strategies for details
+        LSTM encoder-decoder network from (Peng et al., 2019).
+        See https://github.com/xuefeng7/Improving-Sepsis-Treatment-Strategies
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super(EncoderDecoderLSTM, self).__init__()
@@ -140,8 +139,8 @@ class EncoderDecoderLSTM(torch.nn.Module):
 
 class GRUdT(torch.nn.Module):
     """
-    Implementation of the GRU-∆t baseline of (Kidger et al. 2020). For details, see:
-    https://proceedings.neurips.cc/paper/2020/file/4a5876b450b45371f6cfe5047ac8cd45-Paper.pdf
+        Implementation of the GRU-dT baseline of (Kidger et al. 2020). For details, see:
+        https://proceedings.neurips.cc/paper/2020/file/4a5876b450b45371f6cfe5047ac8cd45-Paper.pdf
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super(GRUdT, self).__init__()
