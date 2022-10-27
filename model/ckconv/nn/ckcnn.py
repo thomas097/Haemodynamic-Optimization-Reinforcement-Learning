@@ -6,7 +6,7 @@ from ckconv_layers import CKBlock
 class CKCNN(torch.nn.Module):
     def __init__(self, layer_channels=(64, 128), kernel_dims=32, max_timesteps=100):
         super(CKCNN, self).__init__()
-        self.args = locals()
+        self.config = locals()
 
         self._blocks = []
         for i in range(len(layer_channels) - 1):
