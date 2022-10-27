@@ -58,12 +58,11 @@ if __name__ == '__main__':
                    gamma=0.9,
                    tau=1e-4,
                    lambda_reward=5,
-                   num_episodes=50000,
+                   num_episodes=25000,
                    batch_size=32,
                    eval_func=callback,
                    eval_after=250,
                    scheduler_gamma=0.95,
                    step_scheduler_after=10000,
                    min_max_reward=(-15, 15),
-                   lambda_consv=0.5,
-                   save_on='wis')
+                   save_on=None)

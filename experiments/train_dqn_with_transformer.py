@@ -54,5 +54,4 @@ if __name__ == '__main__':
                    scheduler_gamma=0.95,
                    step_scheduler_after=10000,
                    min_max_reward=(-15, 15),
-                   lambda_consv=0.5,
                    save_on='wis')  # Save best performing model found during training!
