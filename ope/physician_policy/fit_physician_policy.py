@@ -147,6 +147,10 @@ if __name__ == '__main__':
     #   Estimate Policy   #
     #######################
 
+    # Step 0. Create output directory
+    if not os.path.exists(OUT_DIR):
+        os.makedirs(OUT_DIR)
+
     # Step 1. Estimate behavior policy from training set
     weights = get_feature_weights(STATE_COLS, SPECIAL_WEIGHTS)
     policy = estimate_behavior_policy(TRAIN_SET, weights=weights)
