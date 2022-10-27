@@ -4,6 +4,7 @@ import torch
 import numpy as np
 
 from tqdm import tqdm
+from datetime import datetime
 from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
 from loss_functions import *
@@ -32,7 +33,7 @@ class DQN(torch.nn.Module):
     """
     def __init__(self, state_dim=10, hidden_dims=(), num_actions=2, dueling=True):
         super(DQN, self).__init__()
-        self.args = locals()
+        self.config = locals()
 
         # Shared feature network
         shape = (state_dim,) + hidden_dims
@@ -82,24 +83,44 @@ class DQN(torch.nn.Module):
         return actions.cpu().detach().numpy()
 
 
-def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1e-3, gamma=0.99, tau=1e-2, replay_params=(0.0, 0.4),
-                   batch_size=32, scheduler_gamma=0.9, step_scheduler_after=100, encoder=None, freeze_encoder=False, lambda_reward=5,
-                   lambda_phys=0.0, lambda_consv=0.5, eval_func=None, eval_after=100, min_max_reward=(-15, 15), save_on=None):
+def fit_double_dqn(experiment,
+                   policy,
+                   dataset,
+                   encoder=None,
+                   dt='4h',
+                   num_episodes=1,
+                   lrate=1e-3,
+                   gamma=0.99,
+                   tau=1e-2,
+                   replay_alpha=0.4,
+                   replay_beta=0.6,
+                   batch_size=32,
+                   scheduler_gamma=0.9,
+                   step_scheduler_after=10000,
+                   freeze_encoder=False,
+                   lambda_reward=5.0,
+                   lambda_phys=0.0,
+                   lambda_consv=0.0,
+                   eval_func=None,
+                   eval_after=1,
+                   min_max_reward=(-15, 15),
+                   save_on=None):
 
     # Track performance and hyperparameters
     tracker = PerformanceTracker(experiment)
-    config = {**locals(), **policy.args} if encoder is None else {**locals(), **policy.args, **encoder.args}
-    tracker.save_experiment_config(config)
+    tracker.save_experiment_config(policy=policy.config,
+                                   encoder=encoder.config if encoder else {'uses_encoder': False},
+                                   experiment=locals())
 
     # Load dataset into replay buffer
-    replay_buffer = PrioritizedReplay(dataset, alpha=replay_params[0], beta0=replay_params[1], dt=dt,
-                                      return_history=encoder is not None)
+    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta,
+                                      dt=dt, return_history=encoder is not None)
 
     # Adam optimizer with policy and encoder (if provided) and lr scheduler
     modules = torch.nn.ModuleList([policy])
     if encoder is not None:
         modules.append(encoder)
-    optimizer = torch.optim.Adam(modules.parameters(), lr=alpha)
+    optimizer = torch.optim.Adam(modules.parameters(), lr=lrate)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
 
     # Use target network for stability
@@ -159,7 +180,7 @@ def fit_double_dqn(experiment, policy, dataset, dt='4h', num_episodes=1, alpha=1
         if lambda_phys > 0:
             loss += lambbda_phys * physician_regularizer(q_vals, actions)
         if lambda_consv > 0:
-            loss += lambda_consv * conservative_regularizer(q_vals, q_pred)
+            loss += lambda_consv * conservative_regularizer(q_vals, q_pred)  # Minimizes Q for OOD actions
 
         # Policy update
         optimizer.zero_grad()

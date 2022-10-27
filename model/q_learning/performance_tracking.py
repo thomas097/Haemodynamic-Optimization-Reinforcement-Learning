@@ -49,21 +49,22 @@ class PerformanceTracker:
         return ', '.join(['%s = %.3f' % (m, np.mean(self._scores[m][-self._window:])) for m in self._metrics])
 
     def save_metrics(self):
-        # Store metrics as .npy
+        # Store metrics as .npy files
         for metric, values in self._scores.items():
             np.savetxt(os.path.join(self._path, metric + '.npy'), np.array(values))
 
     def save_experiment_config(self, **kwargs):
-        # Filter kwargs on type (drop model summaries!)
-        config_file = dict()
-        for k, v in kwargs.items():
-            if type(v) in [int, float, bool, tuple, list, str]:
-                config_file[k] = v
+        # Build config file of serializable key:value pairs
+        config = defaultdict(dict)
+        for kwarg, dct in kwargs.items():
+            for key, value in dct.items():
+                if type(value) in [bool, int, float, list, tuple, dict, str]:
+                    config[kwarg][key] = value
 
         # Write parameter dictionary to plain-text JSON
         config_path = os.path.join(self._path, 'config.json')
         with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config_file, f, indent=4)
+            json.dump(config, f, indent=4)
 
     def save_model_pt(self, model, label):
         # Pickle model
