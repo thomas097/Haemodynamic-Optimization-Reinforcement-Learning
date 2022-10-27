@@ -67,7 +67,7 @@ class CausalCNN(torch.nn.Module):
 
         layers = []
         for i, kernel_size in enumerate(self._kernel_sizes):
-            conv = self.CausalConv1d(layer_channels[i], layer_channels[i + 1], kernel_size, dilation=dilations[i])
+            conv = CausalConv1d(layer_channels[i], layer_channels[i + 1], kernel_size, dilation=dilations[i])
             layers.append(conv)
         self._model = torch.nn.Sequential(*layers)
 
