@@ -9,7 +9,7 @@ class StateConcatenation(torch.nn.Module):
     """
     def __init__(self, k=2):
         super(StateConcatenation, self).__init__()
-        self.args = locals()
+        self.config = locals()
         self._k = k
 
     def forward(self, history):
@@ -56,7 +56,7 @@ class CausalCNN(torch.nn.Module):
     def __init__(self, layer_channels=(32, 32), kernel_sizes=(12,), dilations=(1,)):
         """ Constructor of the CausalConv1D """
         super(CausalCNN, self).__init__()
-        self.args = locals()
+        self.config = locals()
 
         # Force kernel sizes to be odd
         self._kernel_sizes = [k + 1 if k % 2 == 0 else k for k in kernel_sizes]
@@ -84,7 +84,7 @@ class LSTM(torch.nn.Module):
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1, batch_size=32):
         super(LSTM, self).__init__()
-        self.args = locals()
+        self.config = locals()
         self._model = torch.nn.LSTM(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                     bias=True, batch_first=True)
         self._h0 = torch.nn.Parameter(torch.randn((num_layers, 1, hidden_dims)))
@@ -103,7 +103,7 @@ class GRU(torch.nn.Module):
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super(GRU, self).__init__()
-        self.args = locals()
+        self.config = locals()
         self._model = torch.nn.GRU(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                    bias=True, batch_first=True)
         self._h0 = torch.nn.Parameter(torch.randn((num_layers, 1, hidden_dims)))
@@ -122,7 +122,7 @@ class EncoderDecoderLSTM(torch.nn.Module):
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super(EncoderDecoderLSTM, self).__init__()
-        self.args = locals()
+        self.config = locals()
         self._encoder = torch.nn.LSTM(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
                                       bias=True, batch_first=True)
         self._decoder = torch.nn.LSTM(input_size=hidden_dims, hidden_size=state_dim, num_layers=num_layers,
@@ -145,7 +145,7 @@ class GRUdT(torch.nn.Module):
     """
     def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super(GRUdT, self).__init__()
-        self.args = locals()
+        self.config = locals()
         self._model = torch.nn.GRU(input_size=state_dim + 1, hidden_size=hidden_dims, num_layers=num_layers,
                                    bias=True, batch_first=True)
 
