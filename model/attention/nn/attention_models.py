@@ -17,7 +17,7 @@ class CausalTransformer(torch.nn.Module):
     """
     def __init__(self, vocab_size, d_model, out_channels, nheads=1, dk=16, truncate=256):
         super(CausalTransformer, self).__init__()
-        self.args = locals()
+        self.config = locals()
         self._truncate = truncate
 
         # Positional- and TypeEncoding layers + Transformer Encoder
