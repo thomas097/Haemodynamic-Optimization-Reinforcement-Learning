@@ -1,8 +1,9 @@
+import os
+import faiss
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
-import faiss
 
 
 class FaissWeightedKNN:
@@ -121,18 +122,19 @@ def evaluate_policy(policy, dataset, batch_size=128):
 
 if __name__ == '__main__':
     # Estimate behavior policy from training set
-    TRAIN_SET = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv'
+    TRAIN_SET = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv'
+    OUT_DIR = 'roggeveen_4h_with_cv'
 
     # Evaluate policy's actions on train/valid/test sets
-    DATASETS = ['../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv',
-                '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv',
-                '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_test.csv']
+    DATASETS = ['../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv',
+                '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv',
+                '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_test.csv']
 
     # Assign certain features additional weight. Please refer to (Roggeveen et al., 2021).
     # Remark: In the original work, `chloride` is also up-weighted, but not in the code (why?)
     SPECIAL_WEIGHTS = {'x7': 2,   # age
                        'x29': 2,  # lactate
-                       'x43': 2,  # pf_ration
+                       'x43': 2,  # pf_ratio
                        'x3': 2,   # sofa_score
                        'x4': 2,   # weight
                        'x46': 2,  # total_urine_output
@@ -153,7 +155,7 @@ if __name__ == '__main__':
     for dataset in DATASETS:
         action_probs = evaluate_policy(policy, dataset)
 
-        outfile = Path(dataset).stem
+        outfile = os.path.join(OUT_DIR, Path(dataset).stem)
         action_probs.to_csv(outfile + '_behavior_policy.csv', index=False)
 
 
