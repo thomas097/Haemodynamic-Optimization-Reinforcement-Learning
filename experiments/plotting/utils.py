@@ -27,12 +27,13 @@ def load_pretrained(path, model):
     return model
 
 
-def evaluate_on_dataset(encoder, policy, dataset, _type='qvals'):
+def evaluate_policy_on_dataset(encoder, policy, dataset, _type='qvals'):
     # Load dataset into replay buffer
     replay = EvaluationReplay(dataset, return_history=encoder is not None)
 
-    # Feed histories through (identity) encoder to get fixed state representation
-    encoder = encoder if encoder is not None else (lambda x: x)
+    # Feed histories through encoder to get fixed state representation
+    if encoder is None:
+        encoder = lambda x: x
     encoded_states = torch.concat([encoder(t) for t in replay.iterate()])
 
     # Return Q-values according to model
