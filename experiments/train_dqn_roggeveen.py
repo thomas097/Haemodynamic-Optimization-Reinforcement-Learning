@@ -9,6 +9,8 @@ Date:     01-10-2022
 
 import numpy as np
 import pandas as pd
+import torch
+
 from q_learning import DQN, fit_double_dqn
 from importance_sampling import WeightedIS, IS
 from physician_entropy import PhysicianEntropy
@@ -26,7 +28,10 @@ class OPECallback:
         self._states = valid_data.filter(regex='x\d+').values
 
     def __call__(self, policy):
-        action_probs = policy.action_probs(self._states)
+        policy.eval()
+        with torch.no_grad():
+            action_probs = policy.action_probs(self._states)
+        policy.train()
 
         actions, counts = np.unique(np.argmax(action_probs, axis=1), return_counts=True)
         i = np.argmax(counts)

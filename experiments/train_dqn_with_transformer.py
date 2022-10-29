@@ -2,7 +2,7 @@
 Author:   Thomas Bellucci
 Filename: train_dqn_with_transformer.py
 Descr.:   Performs the training of a Dueling Double DQN model with state-space
-          encoder over entire histories using the ItemWiseTransformer.
+          encoder over entire histories using the CausalTransformer.
 Date:     01-10-2022
 """
 
@@ -19,14 +19,28 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def load_data(path):
+    """ Efficiently loads dataset with minimal memory footprint """
+    df = pd.read_csv(path)
+    df['episode'] = df.episode.astype('category')
+    df['action'] = df.action.astype('float16')
+    df['reward'] = df.reward.astype('float16')
+    df['x0'] = df.x0.astype('category')
+    df['x2'] = df.x2.astype('float16')
+    return df
+
+
 if __name__ == '__main__':
     # Load training and validation data
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/attention/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/attention/mimic-iii_valid.csv')
-    print('train.size = %s  valid.size = %s' % (len(train_df), len(valid_df)))
+    train_df = load_data('../preprocessing/datasets/mimic-iii/attention_4h_with_cv/mimic-iii_train.csv')
+    valid_df = load_data('../preprocessing/datasets/mimic-iii/attention_4h_with_cv/mimic-iii_valid.csv')
+    print('train_df.shape  =', train_df.shape)
+    print('train_df.memory = %.1fGB\n' % (train_df.memory_usage(deep=True).sum() / (1 << 27)))
+    print('valid_df.shape  =', valid_df.shape)
+    print('valid_df.memory = %.1fGB\n' % (valid_df.memory_usage(deep=True).sum() / (1 << 27)))
 
     # Setup encoder model
-    encoder = CausalTransformer(vocab_size=45, d_model=32, out_channels=64, nheads=1)
+    encoder = CausalTransformer(vocab_size=45, d_model=24, out_channels=64, nheads=1, truncate=256)
     print('Encoder params:', count_parameters(encoder))
 
     # Create Dueling DQN controller
@@ -34,7 +48,7 @@ if __name__ == '__main__':
     print('DQN params:    ', count_parameters(dqn))
 
     # Handles intermittent evaluation using OPE on validation set
-    callback = OPECallback(behavior_policy_file='../ope/physician_policy/mimic-iii_valid_behavior_policy.csv',
+    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
 
     # Fit model
@@ -42,7 +56,7 @@ if __name__ == '__main__':
                    policy=dqn,
                    encoder=encoder,
                    dataset=train_df,
-                   dt='4h',  # Time between `t` and `t + 1`
+                   timedelta='4h',
                    lrate=1e-4,
                    gamma=0.9,
                    tau=1e-4,
@@ -53,5 +67,4 @@ if __name__ == '__main__':
                    eval_after=250,
                    scheduler_gamma=0.95,
                    step_scheduler_after=10000,
-                   min_max_reward=(-15, 15),
-                   save_on='wis')  # Save best performing model found during training!
+                   min_max_reward=(-15, 15))

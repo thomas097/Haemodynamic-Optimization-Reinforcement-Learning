@@ -23,24 +23,26 @@ class OPECallback:
         states and returns the WIS estimate of V^πe.
     """
     def __init__(self, behavior_policy_file, valid_data):
-        # Load validation set and metrics
         self._wis = WeightedIS(behavior_policy_file, min_samples=20)
         self._phys = PhysicianEntropy(behavior_policy_file)
         self._replay = EvaluationReplay(valid_data, return_history=True)
 
-    def __call__(self, encoder, policy):
-        # Feed histories through encoder to get fixed state representation
-        encoded_states = torch.concat([encoder(t) for t in self._replay.iterate()])
+    def __call__(self, encoder, policy, batch_size=64):
+        encoder.eval()
+        policy.eval()
 
-        # Action probs from state vectors
-        action_probs = policy.action_probs(encoded_states)
+        with torch.no_grad():
+            encoded_states = torch.concat([encoder(t).detach() for t in self._replay.iterate(batch_size)])
+            action_probs = policy.action_probs(encoded_states)
+
+        encoder.train()
+        policy.train()
 
         actions, counts = np.unique(np.argmax(action_probs, axis=1), return_counts=True)
         i = np.argmax(counts)
         print('\nmost_common_action:', actions[i])
         print('p_most_common_action:', counts[i] / np.sum(counts))
 
-        # Metrics
         weighted_is = self._wis(action_probs)
         phys_entropy = self._phys(action_probs)
         return {'wis': weighted_is, 'phys_entropy': phys_entropy}
