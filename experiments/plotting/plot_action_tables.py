@@ -23,7 +23,7 @@ def create_action_matrix(actions, action_to_bins, labels=range(5)):
 def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
     # Drop absorbing terminal states from dataset
     dataset = pd.read_csv(dataset_file)
-    dataset = dataset[dataset.reward.notna()]
+    dataset = dataset[dataset.reward == 0]
 
     # Mask out timesteps preceding `start_from`
     timesteps = dataset.groupby('episode')['timestep'].transform(lambda x: np.arange(len(x)))
@@ -79,7 +79,8 @@ def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
 
 
 if __name__ == '__main__':
-    paths = {'Roggeveen et al.': 'roggeveen_experiment_00002'}
+    paths = {'Roggeveen et al.': 'roggeveen_experiment_00000',
+             'CKCNN': 'ckcnn_experiment_00000'}
 
     in_dir = '../results/'
     out_dir = '../figures/'

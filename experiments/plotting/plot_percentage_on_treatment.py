@@ -20,7 +20,6 @@ def percentage_on_treatment(actions, num_timesteps, bins_to_action):
 
 def main(in_dir, out_dir, model_paths, dataset_file, action_bin_file):
     dataset = pd.read_csv(dataset_file)
-    dataset = dataset[dataset.reward.notna()]  # drop terminal states
 
     # Infer horizon T from dataset
     num_timesteps = dataset.groupby('episode').size().max()
@@ -75,7 +74,8 @@ def main(in_dir, out_dir, model_paths, dataset_file, action_bin_file):
 
 
 if __name__ == '__main__':
-    paths = {'Roggeveen et al.': 'roggeveen_experiment_00002'}
+    paths = {'Roggeveen et al.': 'roggeveen_experiment_00000',
+             'CKCNN': 'ckcnn_experiment_00000'}
 
     in_dir = '../results/'
     out_dir = '../figures/'

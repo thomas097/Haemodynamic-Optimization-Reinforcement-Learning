@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,16 +7,16 @@ import seaborn as sns
 sns.set_theme(style="darkgrid")
 
 
-def plot_action_space(data_paths, labels, num_actions=25):
+def plot_action_space(out_path, data_paths, labels, num_actions=25):
     # Assign each action a unique color
     colors = plt.get_cmap(name='hsv', lut=num_actions)
 
     # Plot action spaces of datasets side by side
-    plt.figure(figsize=(12, 5))
+    plt.figure(figsize=(12, 4))
     for i, path in enumerate(data_paths):
         df = pd.read_csv(path)
-        max_vaso = df['max_vaso_shifted']
-        iv_fluid = df['total_iv_fluid_shifted']
+        max_vaso = df['max_vaso']
+        iv_fluid = df['total_iv_fluid']
         action = df['action'].values.astype(int)
 
         plt.subplot(1, 3, i + 1)
@@ -27,6 +28,8 @@ def plot_action_space(data_paths, labels, num_actions=25):
         plt.xlabel('Max VP dose (mcg/kg/min)')
         plt.ylabel('Total IV fluid (mL)' if i == 0 else '')
 
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_path, 'mimic-iii_action_space.pdf'))
     plt.show()
 
 
@@ -51,5 +54,7 @@ if __name__ == '__main__':
                   '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_test.csv']
     labels = ['Train', 'Valid', 'Test']
 
-    plot_action_space(data_paths, labels)
+    out_path = '../figures/'
+
+    plot_action_space(out_path, data_paths, labels)
     print_action_support(data_paths, labels)
