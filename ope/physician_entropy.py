@@ -4,7 +4,7 @@ import torch
 
 
 class PhysicianEntropy:
-    def __init__(self, behavior_policy_file, drop_terminal_states=True):
+    def __init__(self, behavior_policy_file):
         """ Compares the output action probabilities to those by the physician using cross-entropy.
 
             Params
@@ -13,16 +13,14 @@ class PhysicianEntropy:
         """
         # Distribution over actions of behavior policy (i.e. physician)
         phys_df = pd.read_csv(behavior_policy_file)
-        if drop_terminal_states:
-            phys_df = phys_df[phys_df['reward'].notna()]
+
         self._pi_b = self._behavior_policy(phys_df)
         self._loss = torch.nn.CrossEntropyLoss()
 
     @staticmethod
     def _behavior_policy(df):
-        # Return numeric columns (assumed to belong to actions, i.e., '0' - '24')
-        action_cols = sorted([c for c in df.columns if c.isnumeric()], key=lambda c: int(c))
-        return df[action_cols].values.astype(np.float64)
+        # Return numeric columns belonging to actions, e.g., '0' - '24'
+        return df.filter(regex='\d+').values.astype(np.float64)
 
     def __call__(self, pi_e):
         """ Computes the cross-entropy loss between the action probabilities of πe

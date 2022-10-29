@@ -3,7 +3,7 @@ import pandas as pd
 
 
 class IS:
-    def __init__(self, behavior_policy_file, gamma=1.0, clip_degenerate=0):
+    def __init__(self, behavior_policy_file, gamma=1.0, min_samples=0):
         """ Implementation of the Stepwise Importance Sampling (IS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -11,9 +11,9 @@ class IS:
             behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor (default: 1.0)
-            clip_degenerate:      For sharp behavior policies (e.g. softmax), weight degeneracy might result in
-                                  unreliable estimates. Setting `clip_degenerate` will clip the top-N weights
-                                  to their empirical mean (ClipIS), thereby reducing degeneracy.
+            min_samples:          For sharp policies (e.g. softmax), weight degeneracy might result in unreliable
+                                  estimates. Setting `min_samples` will clip the top-`min_samples` weights to their
+                                  empirical mean, thereby reducing degeneracy and increasing effective sample size.
                                   For details, see (Martino et al., 2018): https://ieeexplore.ieee.org/document/8450722
         """
         phys_df = pd.read_csv(behavior_policy_file)
@@ -28,8 +28,7 @@ class IS:
         self.timesteps = phys_df.groupby('episode').size().max()
         self.rewards = self._to_table(phys_df['reward'].values)
         self.gamma = np.power(gamma, np.arange(self.timesteps))[np.newaxis]
-        self._clip_degenerate = clip_degenerate
-
+        self._min_samples = min_samples
 
     @staticmethod
     def _behavior_policy(df):
@@ -39,15 +38,15 @@ class IS:
     def _to_table(self, arr):
         return arr.reshape(-1, self.timesteps)
 
-    def _clip(self, weights):       
+    def _clip(self, weights):
+        # Clip each row of weight matrix separately
         for i in range(weights.shape[1]):
-            # Determine threshold to mask top-k weights at each timestep
-            sorted_weights = np.sort(weights, axis=0)
-            thresholds = sorted_weights[-self._clip_degenerate]
+            # Determine threshold to mask top-k weights at timestep i
+            threshold = np.sort(weights[:, i])[-self._min_samples]
 
-            # Set weights > thres equal to their empirical mean at each timestep
-            col_mask = weights[:, i] >= thresholds[:, i]
-            weights[i, mask] = np.mean(weights[:, t])
+            # Set weights > threshold equal to their empirical mean
+            mask = weights[:, i] >= threshold
+            weights[mask, i] = np.mean(weights[mask, i])
 
         return weights
 
@@ -65,7 +64,7 @@ class IS:
 
         # Compute cumulative importance ratio
         weights = np.cumprod(action_probs_e / action_probs_b, axis=1)
-        if self._clip_degenerate > 0:
+        if self._min_samples > 0:
             weights = self._clip(weights)
 
         if return_weights:
@@ -75,7 +74,7 @@ class IS:
 
 
 class WeightedIS(IS):
-    def __init__(self, behavior_policy_file, gamma=1.0, clip_degenerate=0):
+    def __init__(self, behavior_policy_file, gamma=1.0, min_samples=0):
         """ Implementation of the Stepwise Weighted Importance Sampling (WIS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -83,12 +82,12 @@ class WeightedIS(IS):
             behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor (default: 1.0)
-            clip_degenerate:      For sharp behavior policies (e.g. softmax), weight degeneracy might result in
-                                  unreliable estimates. Setting `clip_degenerate` will clip the top-N weights
-                                  to their empirical mean (ClipIS), thereby reducing degeneracy.
+            min_samples:          For sharp policies (e.g. softmax), weight degeneracy might result in unreliable
+                                  estimates. Setting `min_samples` will clip the top-`min_samples` weights to their
+                                  empirical mean, thereby reducing degeneracy and increasing effective sample size.
                                   For details, see (Martino et al., 2018): https://ieeexplore.ieee.org/document/8450722
         """
-        super().__init__(behavior_policy_file, gamma, clip_degenerate)
+        super().__init__(behavior_policy_file, gamma, min_samples)
 
     def __call__(self, pi_e, return_weights=False):
         """ Computes the WIS estimate of V^πe.
@@ -104,7 +103,7 @@ class WeightedIS(IS):
 
         # Compute cumulative importance ratio
         ratio = np.cumprod(action_probs_e / action_probs_b, axis=1)
-        if self._clip_degenerate > 0:
+        if self._min_samples > 0:
             ratio = self._clip(ratio)
 
         # Normalize weights
@@ -123,10 +122,17 @@ if __name__ == '__main__':
     behavior_df = pd.read_csv(behavior_policy_file)
     behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
 
-    # Random policy
+    # Dr. House policy (mimics the physician if patient survives (i.e. does the right thing), but goes crazy otherwise)
     from sklearn.preprocessing import label_binarize
+    house_policy = label_binarize(behavior_df.action, classes=np.arange(25))
+    crazy_action = label_binarize([1], classes=np.arange(25))
+    for i, r in enumerate(behavior_df.reward):
+        if r == -15:
+            house_policy[i-17:i + 1] = crazy_action  # crazy_action is impossible (VP but no IV)
+
+    # Random policy
     random_policy = label_binarize(np.random.randint(0, 24, behavior_policy.shape[0]), classes=np.arange(25))
-    random_policy = random_policy.astype(np.float32) + np.random.uniform(0, 0.05, random_policy.shape)  # Add noise
+    random_policy = random_policy.astype(np.float32) + np.random.uniform(0, 0.1, random_policy.shape)  # Add noise
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
 
     # Zero-drug policy
@@ -135,18 +141,20 @@ if __name__ == '__main__':
 
     # IS/WIS + clipping
     imp_sampling = IS(behavior_policy_file)
-    imp_clipped = IS(behavior_policy_file, clip_degenerate=2)
+    imp_clipped = IS(behavior_policy_file, min_samples=20)
     
     wimp_sampling = WeightedIS(behavior_policy_file)
-    wimp_clipped = WeightedIS(behavior_policy_file, clip_degenerate=2)
+    wimp_clipped = WeightedIS(behavior_policy_file, min_samples=20)
 
     print('IS:')
     print('behavior: ', imp_sampling(behavior_policy))
+    print('Dr. House:', imp_sampling(house_policy))
     print('random:   ', imp_sampling(random_policy))
     print('zero drug:', imp_sampling(zerodrug_policy))
 
     print('\nIS + clipping:')
     print('behavior: ', imp_clipped(behavior_policy))
+    print('Dr. House:', imp_clipped(house_policy))
     print('random:   ', imp_clipped(random_policy))
     print('zero drug:', imp_clipped(zerodrug_policy))
 
@@ -154,11 +162,13 @@ if __name__ == '__main__':
 
     print('\nWIS:')
     print('behavior: ', wimp_sampling(behavior_policy))
+    print('Dr. House:', wimp_sampling(house_policy))
     print('random:   ', wimp_sampling(random_policy))
     print('zero drug:', wimp_sampling(zerodrug_policy))
 
     print('\nWIS + clipping:')
     print('behavior: ', wimp_clipped(behavior_policy))
+    print('Dr. House:', wimp_clipped(house_policy))
     print('random:   ', wimp_clipped(random_policy))
     print('zero drug:', wimp_clipped(zerodrug_policy))
 
