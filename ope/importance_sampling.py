@@ -40,14 +40,14 @@ class IS:
         return arr.reshape(-1, self.timesteps)
 
     def _clip(self, weights):       
-        # Determine threshold to mask top-k weights
-        sorted_weights = np.sort(weights, axis=0)
-        thres = sorted_weights[-self._clip_degenerate]
-        print(thres)
+        for i in range(weights.shape[1]):
+            # Determine threshold to mask top-k weights at each timestep
+            sorted_weights = np.sort(weights, axis=0)
+            thresholds = sorted_weights[-self._clip_degenerate]
 
-        # Set weights > thres equal to their empirical mean
-        mask = weights >= thres
-        weights[mask] = np.mean(weights[mask])
+            # Set weights > thres equal to their empirical mean at each timestep
+            col_mask = weights[:, i] >= thresholds[:, i]
+            weights[i, mask] = np.mean(weights[:, t])
 
         return weights
 
@@ -135,10 +135,10 @@ if __name__ == '__main__':
 
     # IS/WIS + clipping
     imp_sampling = IS(behavior_policy_file)
-    imp_clipped = IS(behavior_policy_file, clip_degenerate=80)
+    imp_clipped = IS(behavior_policy_file, clip_degenerate=2)
     
     wimp_sampling = WeightedIS(behavior_policy_file)
-    wimp_clipped = WeightedIS(behavior_policy_file, clip_degenerate=80)
+    wimp_clipped = WeightedIS(behavior_policy_file, clip_degenerate=2)
 
     print('IS:')
     print('behavior: ', imp_sampling(behavior_policy))
