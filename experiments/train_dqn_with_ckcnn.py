@@ -6,9 +6,10 @@ Descr.:   Performs the training of a Dueling Double DQN model with state-space
 Date:     01-10-2022
 """
 
+import torch
+import numpy as np
 import pandas as pd
 
-import torch
 from q_learning import DQN, fit_double_dqn
 from experience_replay import EvaluationReplay
 from ckcnn import CKCNN
@@ -23,7 +24,7 @@ class OPECallback:
     """
     def __init__(self, behavior_policy_file, valid_data):
         # Load validation set and metrics
-        self._wis = WeightedIS(behavior_policy_file)
+        self._wis = WeightedIS(behavior_policy_file, min_samples=20)
         self._phys = PhysicianEntropy(behavior_policy_file)
         self._replay = EvaluationReplay(valid_data, return_history=True)
 
@@ -33,6 +34,11 @@ class OPECallback:
 
         # Action probs from state vectors
         action_probs = policy.action_probs(encoded_states)
+
+        actions, counts = np.unique(np.argmax(action_probs, axis=1), return_counts=True)
+        i = np.argmax(counts)
+        print('\nmost_common_action:', actions[i])
+        print('p_most_common_action:', counts[i] / np.sum(counts))
 
         # Metrics
         weighted_is = self._wis(action_probs)
@@ -66,17 +72,17 @@ if __name__ == '__main__':
                    policy=dqn,
                    encoder=encoder,
                    dataset=train_df,
-                   timedelta='4h',  # Time between s_t and s_t+1
+                   timedelta='4h',
                    lrate=1e-4,
                    gamma=0.9,
                    tau=1e-4,
                    lambda_reward=5,
-                   num_episodes=25000,
+                   num_episodes=50000,
                    batch_size=32,
                    eval_func=callback,
-                   eval_after=250,
-                   replay_alpha=0.0,
+                   eval_after=500,
                    scheduler_gamma=0.95,
+                   replay_alpha=0.6,
+                   replay_beta=0.9,
                    step_scheduler_after=10000,
-                   min_max_reward=(-15, 15),
-                   save_on=None)
+                   min_max_reward=(-15, 15))
