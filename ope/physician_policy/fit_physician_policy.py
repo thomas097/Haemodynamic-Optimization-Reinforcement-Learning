@@ -50,6 +50,8 @@ class FaissWeightedKNN:
             if true_action is not None:
                 action_count[:, i] += (true_action == a).flatten()
 
+        # TODO: force action chosen to be highest!
+
         # Normalize to obtain probabilities
         return action_count / np.sum(action_count, axis=1, keepdims=True)
 
@@ -140,7 +142,7 @@ if __name__ == '__main__':
                        'x46': 2,  # total_urine_output
                        'x12': 2,  # dias_bp
                        'x11': 2,  # mean_bp
-                       'x1': 2}   # total_iv_fluid
+                       'x1': 2}   # total_iv_fluid_prev
     STATE_COLS = ['x%d' % i for i in range(48)]
 
     #######################
