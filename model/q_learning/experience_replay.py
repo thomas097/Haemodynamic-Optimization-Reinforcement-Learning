@@ -11,8 +11,8 @@ except:
 
 
 class EvaluationReplay:
-    """ Implements a simple experience replay buffer which sequentially
-        iterates over a dataset returning batches of histories.
+    """ Implements an experience replay buffer to sequentially iterate over a
+        dataset returning batches of individual states or complete histories.
     """
     def __init__(self, dataset, max_len=512, return_history=False):
         # Move states to GPU if available
@@ -22,13 +22,13 @@ class EvaluationReplay:
         states = dataset.filter(regex='x\d+').values
         self._states = torch.Tensor(states).to(self._device)
 
-        self._indices = self._non_terminal_indices(dataset)
+        self._indices = dataset.index.values
         self._buffer_size = self._indices.shape[0]
         print('Evaluation dataset size: %d states' % self._buffer_size)
 
         # Build index of states and their histories to speed up replay
         if return_history:
-            print('\nBuilding history index (EvaluationReplay):')
+            print('\nBuilding index of histories (EvaluationReplay):')
             self._history_indices = self._build_history_index(dataset)
         self._return_history = return_history
         self._max_len = max_len
@@ -39,19 +39,9 @@ class EvaluationReplay:
         history_index = {}
         for _, episode in tqdm(df.groupby('episode', sort=False)):
             start_state_index = np.min(episode.index)
-            actionable_indices = episode.index[episode.reward.notna()]  # Which states have actions/rewards?
-            for i in actionable_indices:
-                history_index[i] = start_state_index  # Only need to register first state of episode as end == `i`
+            for i in episode.index:
+                history_index[i] = start_state_index  # Only need to register first state of episode as end == i
         return history_index
-
-    @staticmethod
-    def _non_terminal_indices(df):
-        """ Determine indices of all visitable non-terminal states """
-        # NaNs in 'reward' column mark absorbing terminal states
-        indices = []
-        for _, episode in df.groupby('episode', sort=False):
-            indices += episode.index[episode.reward.notna()].to_list()
-        return np.array(indices)
 
     def _consolidate_length(self, sequences, value=0):
         arr = pad_sequences(sequences, dtype=np.float32, padding="pre", truncating="pre", value=value)
@@ -64,8 +54,8 @@ class EvaluationReplay:
             states = []
             for i in batch_transitions:
                 if self._return_history:
-                    start = self._history_indices[i]
-                    states.append(self._states[start:i + 1])  # i+1 to include i
+                    i_start = self._history_indices[i]
+                    states.append(self._states[i_start:i + 1])
                 else:
                     states.append(self._states[i])
 
@@ -81,7 +71,7 @@ class PrioritizedReplay:
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, dataset, alpha=0.6, beta0=0.4, eps=1e-2, dt='4h', max_len=512, return_history=False):
+    def __init__(self, dataset, alpha=0.6, beta0=0.4, eps=1e-2, timedelta='4h', max_len=512, return_history=False):
         # Create single DataFrame with episode and timestep information.
         self._dataset = dataset.reset_index(drop=True)
         self._dataset.timestep = pd.to_datetime(self._dataset.timestep)
@@ -108,8 +98,8 @@ class PrioritizedReplay:
 
         # Build index of states and their histories to speed up replay
         if return_history:
-            print('\nBuilding history index (PrioritizedReplay):')
-            self._history_indices = self._build_history_index(df=self._dataset, delta=pd.to_timedelta(dt))
+            print('\nBuilding index of histories (PrioritizedReplay):')
+            self._history_indices = self._build_history_index(df=self._dataset, timedelta=pd.to_timedelta(timedelta))
 
         self._return_history = return_history
         self._max_len = max_len
@@ -118,33 +108,33 @@ class PrioritizedReplay:
         self._eps = eps
 
     @staticmethod
-    def _build_history_index(df, delta):
+    def _non_terminal_indices(df):
+        """ Determine indices of all visitable non-terminal states """
+        # Non-zero rewards indicate terminal states
+        indices = []
+        for _, episode in df.groupby('episode', sort=False):
+            indices += episode.index[episode.reward == 0].to_list()
+        return np.array(indices)
+
+    @staticmethod
+    def _build_history_index(df, timedelta):
         """ Builds an index with start/stop indices of histories for each state """
-        delta = pd.to_timedelta(delta)
+        timedelta = pd.to_timedelta(timedelta)
         history_index = {}
         for _, episode in tqdm(df.groupby('episode', sort=False)):
             state_indices = episode.index
             timesteps = episode.timestep
             start_state_index = np.min(state_indices)  # History starts at the beginning of the episode
 
-            non_terminal_indices = state_indices[episode.reward.notna()]  # Which states have actions/rewards?
+            non_terminal_indices = state_indices[episode.reward == 0]  # Which states are intermediate states?
             for i in non_terminal_indices:
-                next_state_index = np.max(state_indices[timesteps <= timesteps.loc[i] + delta])  # State `delta` after state `i`
-                history_index[i] = (start_state_index, next_state_index)
+                next_state_index = np.max(state_indices[timesteps <= timesteps.loc[i] + timedelta])
+                history_index[i] = (start_state_index, next_state_index)  # Define history as start_state:next_state
 
         return history_index
 
-    @staticmethod
-    def _non_terminal_indices(df):
-        """ Determine indices of all visitable non-terminal states """
-        # NaNs in 'reward' column mark absorbing terminal states
-        indices = []
-        for _, episode in df.groupby('episode', sort=False):
-            indices += episode.index[episode.reward.notna()].to_list()
-        return np.array(indices)
-
     def _to_index(self, transitions):
-        # Returns indices of `idx` in full `self._indices` index
+        # Returns indices of 'transitions' in full 'self._indices' index
         return [np.where(self._indices == t)[0][0] for t in transitions]
 
     def _selection_probs(self):
@@ -177,15 +167,16 @@ class PrioritizedReplay:
 
         for i in batch_transitions:
             if self._return_history:
-                start, stop = self._history_indices[i]
-                states.append(self._states[start:i + 1])
-                next_states.append(self._states[start:stop + 1])  # i+1 to include stop index
+                i_start, i_end = self._history_indices[i]
+                states.append(self._states[i_start:i + 1])
+                actions.append(self._actions[i])
+                rewards.append(self._rewards[i_end])
+                next_states.append(self._states[i_start:i_end + 1])
             else:
                 states.append(self._states[[i]])
+                actions.append(self._actions[i])
+                rewards.append(self._rewards[i + 1])
                 next_states.append(self._states[[i + 1]])
-
-            actions.append(self._actions[i])
-            rewards.append(self._rewards[i])
 
         # If return_histories, consolidate their lengths
         if self._return_history:

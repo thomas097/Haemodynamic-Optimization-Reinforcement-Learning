@@ -10,6 +10,9 @@ from performance_tracking import PerformanceTracker
 from loss_functions import *
 
 
+INF = 1e16
+
+
 class DuelingLayer(torch.nn.Module):
     """ Implementation of a `Dueling` layer, separating state-
         value estimation and advantage function as:
@@ -31,7 +34,7 @@ class DQN(torch.nn.Module):
         employ a dueling architecture as proposed in (van Hasselt et al., 2015).
         For details: https://arxiv.org/pdf/1511.06581.pdf
     """
-    def __init__(self, state_dim=10, hidden_dims=(), num_actions=2, dueling=True):
+    def __init__(self, state_dim=10, hidden_dims=(), num_actions=2, disallowed_actions=(), dueling=True):
         super(DQN, self).__init__()
         self.config = locals()
 
@@ -56,6 +59,10 @@ class DQN(torch.nn.Module):
         self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.to(self._device)
 
+        # Additive mask to set value of disallowed actions to -INF
+        self._action_mask = torch.zeros((1, num_actions), device=self._device)
+        self._action_mask[0, disallowed_actions] = -INF
+
     @staticmethod
     def _init_xavier_uniform(layer):
         """ Init weights using Xavier initialization """
@@ -66,7 +73,7 @@ class DQN(torch.nn.Module):
     def forward(self, states):  # <- (batch_size, state_dim)
         """ Forward pass through DQN """
         h = self._base(states)
-        return self._head(h)
+        return self._head(h) + self._action_mask
 
     def action_probs(self, states):
         """ Return probability of action given state as given by softmax """
@@ -87,7 +94,7 @@ def fit_double_dqn(experiment,
                    policy,
                    dataset,
                    encoder=None,
-                   dt='4h',
+                   timedelta='4h',
                    num_episodes=1,
                    lrate=1e-3,
                    gamma=0.99,
@@ -104,7 +111,7 @@ def fit_double_dqn(experiment,
                    eval_func=None,
                    eval_after=1,
                    min_max_reward=(-15, 15),
-                   save_on=None):
+                   save_on=False):
 
     # Track performance and hyperparameters
     tracker = PerformanceTracker(experiment)
@@ -114,7 +121,7 @@ def fit_double_dqn(experiment,
 
     # Load dataset into replay buffer
     replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta,
-                                      dt=dt, return_history=encoder is not None)
+                                      timedelta=timedelta, return_history=encoder is not None)
 
     # Adam optimizer with policy and encoder (if provided) and lr scheduler
     modules = torch.nn.ModuleList([policy])
@@ -153,7 +160,7 @@ def fit_double_dqn(experiment,
         # Sample (s, a, r, s') transition from PER
         states, actions, rewards, next_states, transitions, weights = replay_buffer.sample(N=batch_size)
 
-        # Estimate Q(s, a) with s optionally encoded from s_0:t-1
+        # Estimate Q(s, a) with s optionally encoded from s_0:t
         states = encoder(states) if encoder is not None else states
         q_vals = policy(states)
         q_pred = q_vals.gather(dim=1, index=actions)
@@ -178,7 +185,7 @@ def fit_double_dqn(experiment,
         if lambda_reward > 0:
             loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
         if lambda_phys > 0:
-            loss += lambbda_phys * physician_regularizer(q_vals, actions)
+            loss += lambbda_phys * physician_regularizer(q_vals, actions)    # Forces decisions to lie close to those of behavior policy
         if lambda_consv > 0:
             loss += lambda_consv * conservative_regularizer(q_vals, q_pred)  # Minimizes Q for OOD actions
 
@@ -209,7 +216,7 @@ def fit_double_dqn(experiment,
         ############################
 
         tracker.add(loss=loss.item())
-        tracker.add(avg_Q_value=torch.mean(q_vals).item())  # Drop impossible actions 1-4 with -inf Q-values
+        tracker.add(avg_Q_value=torch.mean(q_vals[q_vals > -1e6]).item())  # Drop disallowed actions
         tracker.add(abs_TD_error=torch.mean(td_error))
         tracker.add(avg_imp_weight=torch.mean(weights))
 
@@ -221,22 +228,17 @@ def fit_double_dqn(experiment,
             tracker.save_metrics()
             print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
 
-            # If performance on validation set was better than before, save policy (and encoder) to `model` directory
-            if save_on and tracker.new_best(metric=save_on):
-                print('Improvement! Saving model!')
+            # Save models intermittently upon improvement (always if save_on=False)
+            if not save_on or (save_on and tracker.new_best(metric=save_on)):
+                if save_on:
+                    print('Improvement! Saving model!')
                 tracker.save_model_pt(policy, 'policy')
                 if encoder:
                     tracker.save_model_pt(encoder, 'encoder')
-
-    # Final save (if not saved on model improvement)
-    if not save_on:
-        print('Done! Saving model!')
-        tracker.save_model_pt(policy, 'policy')
-        if encoder:
-            tracker.save_model_pt(encoder, 'encoder')
-    tracker.save_metrics()
 
     # Disable training mode
     policy.eval()
     if encoder:
         encoder.eval()
+
+    print('Done!')

@@ -34,6 +34,9 @@ class PerformanceTracker:
             Note: As performance estimates can be high variance (e.g. WIS) we
             average scores over a window (set by `self._smoothing`) to determine improvement.
         """
+        if metric not in self._metrics:
+            return False
+
         scores = self._scores[metric]
         if len(scores) < self._window + 1:
             return False
