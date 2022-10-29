@@ -20,11 +20,11 @@ class EvaluationReplay:
 
         dataset = dataset.reset_index(drop=True)
         states = dataset.filter(regex='x\d+').values
-        self._states = torch.Tensor(states).to(self._device)
+        self._states = torch.Tensor(states, device=self._device)
 
-        self._indices = dataset.index.values
+        self._indices = self._get_all_state_indices(dataset)
         self._buffer_size = self._indices.shape[0]
-        print('Evaluation dataset size: %d states' % self._buffer_size)
+        print('\nEvaluation dataset size: %d states' % self._buffer_size)
 
         # Build index of states and their histories to speed up replay
         if return_history:
@@ -34,18 +34,22 @@ class EvaluationReplay:
         self._max_len = max_len
 
     @staticmethod
-    def _build_history_index(df):
+    def _get_all_state_indices(dataset):
+        """ Determine indices of visitable states in dataset """
+        return dataset.index[dataset.reward.notna()].values
+
+    def _build_history_index(self, dataset):
         """ Builds an index with start/stop indices of histories for each state """
         history_index = {}
-        for _, episode in tqdm(df.groupby('episode', sort=False)):
+        for _, episode in tqdm(dataset.groupby('episode', sort=False)):
             start_state_index = np.min(episode.index)
-            for i in episode.index:
+            for i in self._get_all_state_indices(episode):
                 history_index[i] = start_state_index  # Only need to register first state of episode as end == i
         return history_index
 
     def _consolidate_length(self, sequences, value=0):
-        arr = pad_sequences(sequences, dtype=np.float32, padding="pre", truncating="pre", value=value)
-        return torch.Tensor(arr)[:, -self._max_len:]
+        arr = pad_sequences(sequences, padding="pre", truncating="pre", value=value)
+        return torch.Tensor(arr[:, -self._max_len:], device=self._device)
 
     def iterate(self, batch_size=128):
         for j in range(0, self._buffer_size, batch_size):
@@ -86,12 +90,8 @@ class PrioritizedReplay:
         self._actions = torch.LongTensor(actions).unsqueeze(1).to(self._device)
         self._rewards = torch.LongTensor(rewards).unsqueeze(1).to(self._device)
 
-        # Determines indices of non-terminal states in df
-        self._indices = self._non_terminal_indices(self._dataset)
-
-        # USed to find states prior to t and dt ahead (next step)
-        self._timestep = self._dataset.timestep.values
-        self._episodes = self._dataset.episode.values
+        # Determines indices of non-terminal states in dataset
+        self._indices = self._get_non_terminal_state_indices(self._dataset)
 
         self._buffer_size = len(self._indices)
         self._TD_errors = np.ones(self._buffer_size) * 1e16  # Big numbers ensure all states are sampled at least once
@@ -108,13 +108,9 @@ class PrioritizedReplay:
         self._eps = eps
 
     @staticmethod
-    def _non_terminal_indices(df):
-        """ Determine indices of all visitable non-terminal states """
-        # Non-zero rewards indicate terminal states
-        indices = []
-        for _, episode in df.groupby('episode', sort=False):
-            indices += episode.index[episode.reward == 0].to_list()
-        return np.array(indices)
+    def _get_non_terminal_state_indices(df):
+        """ Determine indices of all visitable non-terminal states in dataset"""
+        return df.index[df.reward == 0].values
 
     @staticmethod
     def _build_history_index(df, timedelta):
