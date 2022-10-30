@@ -45,7 +45,4 @@ if __name__ == '__main__':
     paths = {'Roggeveen et al.': ('roggeveen_experiment_00000', roggeveen_data_file),
              }
 
-    in_dir = '../results/'
-    out_dir = '../results/figures/'
-
     main(paths, roggeveen_data_file, behavior_policy_file)
