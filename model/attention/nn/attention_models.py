@@ -15,16 +15,19 @@ class CausalTransformer(torch.nn.Module):
         by learnt embeddings and use sin/cos positional encoding to encode the chart-time.
         We feed the sum of embeddings (incl. the value) to a stack of causal self-attention encoders.
     """
-    def __init__(self, vocab_size, d_model, out_channels, nheads=1, dk=16, truncate=256):
+    def __init__(self, vocab_size, d_model, out_channels, nheads=1, dk=16, action_id=45, truncate=256):
         super(CausalTransformer, self).__init__()
         self.config = locals()
         self._truncate = truncate
+        self._action_id = action_id
 
         # Positional- and TypeEncoding layers + Transformer Encoder
         self._pos_encoding = PositionalEncoding(d_model)
         self._type_encoding = TypeEncoding(d_model, vocab_size=vocab_size + 1)  # vocab + 1 for padding
         self._value_encoding = torch.nn.Linear(1, d_model)
-        self._encoder = SelfAttentionBlock(d_model, out_channels, nheads=nheads, dk=dk, maxlen=truncate) # map immediately to out_channels
+
+        self._encoder1 = SelfAttentionBlock(d_model, d_model, nheads=nheads, dk=dk, maxlen=truncate)
+        self._encoder2 = SelfAttentionBlock(d_model, out_channels, nheads=nheads, dk=dk, maxlen=truncate)
 
         # Use GPU if available
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -42,8 +45,10 @@ class CausalTransformer(torch.nn.Module):
         ve = self._value_encoding(x_value)
         inputs = te + pe + ve
 
-        # Mask out zero-padding using Boolean mask of shape (batch_size, seq_len, dk=1) with True -> padding
-        padding_mask = (x_type == 0).bool().unsqueeze(2).to(self._device)
+        # Mask zero-padding/old 'action' tokens using Boolean mask of shape (batch_size, seq_len, dk=1) with True -> padding
+        key_mask = torch.logical_or(x_type == 0, x_type == self._action_id).unsqueeze(2).to(self._device)
+        key_mask[:, -1, :] = False  # Don't mask out final 'action' state
 
         # Forward pass through transformer
-        return self._encoder(inputs, padding_mask=padding_mask, return_last=return_last)
+        hidden = self._encoder1(inputs, key_mask=key_mask)
+        return self._encoder2(hidden, key_mask=key_mask, return_last=return_last)

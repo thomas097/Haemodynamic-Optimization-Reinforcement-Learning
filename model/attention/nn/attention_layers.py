@@ -23,15 +23,15 @@ class CausalSelfAttention(torch.nn.Module):
         # Precompute causal mask of (batch_size, maxlen, maxlen)
         self._causal_mask = torch.triu(torch.ones(maxlen, maxlen, device=self._device), diagonal=1).bool().unsqueeze(0)
 
-    def forward(self, x, padding_mask):
+    def forward(self, x, key_mask):
         # Compute Q/K/V matrices
         q = self._Q(x)
         k = self._K(x)
         v = self._V(x)
 
         # Mask keys using padding matrix to drop attention to padding timesteps to -INF
-        if padding_mask is not None:
-            k.masked_fill_(mask=padding_mask, value=-INF)
+        if key_mask is not None:
+            k.masked_fill_(mask=key_mask, value=-INF)
 
         # Compute attention matrix QK^T/sqrt(dk)
         attention = torch.bmm(q, torch.transpose(k, 1, 2)) * self._inv_dk
@@ -58,8 +58,8 @@ class MultiHeadSelfAttention(torch.nn.Module):
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-    def forward(self, x, padding_mask=None):
-        hidden = torch.concat([head(x, padding_mask) for head in self._heads], dim=2)
+    def forward(self, x, key_mask=None):
+        hidden = torch.concat([head(x, key_mask) for head in self._heads], dim=2)
         return self._linear(hidden)
 
 
@@ -83,8 +83,8 @@ class SelfAttentionBlock(torch.nn.Module):
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-    def forward(self, x, padding_mask=None, return_last=False):
-        h = self._layer_norm(self._attn(x, padding_mask) + x)
+    def forward(self, x, key_mask=None, return_last=False):
+        h = self._layer_norm(self._attn(x, key_mask) + x)
 
         # If return_last, feed only last step through Linear (faster)
         y = self._linear(h[:, -1]) if return_last else self._linear(h)
