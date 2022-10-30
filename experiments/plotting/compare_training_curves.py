@@ -53,13 +53,11 @@ def main(in_dir, out_dir, paths, metric, smooth_over_episodes=500):
 
 
 if __name__ == '__main__':
-    paths = {'Roggeveen et al.': 'roggeveen_experiment_00000',
-             'CKCNN': 'ckcnn_experiment_00000',
-             'Causal CNN': 'causal_cnn_experiment_00000'}
+    paths = {'Roggeveen et al.': 'roggeveen_experiment_00000'}
 
     metrics = ['loss', 'wis', 'avg_Q_value', 'phys_entropy']
     in_dir = '../results/'
-    out_dir = '../figures/'
+    out_dir = '../results/figures/'
 
     for metric in metrics:
         main(in_dir, out_dir, paths, metric, smooth_over_episodes=1000)

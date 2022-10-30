@@ -32,9 +32,10 @@ def evaluate_policy_on_dataset(encoder, policy, dataset, _type='qvals'):
     replay = EvaluationReplay(dataset, return_history=encoder is not None)
 
     # Feed histories through encoder to get fixed state representation
-    if encoder is None:
-        encoder = lambda x: x
-    encoded_states = torch.concat([encoder(t) for t in replay.iterate()])
+    if encoder is not None:
+        encoded_states = torch.concat([encoder(t).detach() for t in replay.iterate()])
+    else:
+        encoded_states = torch.concat([t for t in replay.iterate()])
 
     # Return Q-values according to model
     if _type == 'qvals':
@@ -49,4 +50,4 @@ def evaluate_policy_on_dataset(encoder, policy, dataset, _type='qvals'):
 
 def run_encoder_over_dataset(encoder, dataset):
     replay = EvaluationReplay(dataset, return_history=True)
-    return torch.concat([encoder(t) for t in replay.iterate()]).detach().numpy()
+    return torch.concat([encoder(t).detach() for t in replay.iterate()]).detach().numpy()

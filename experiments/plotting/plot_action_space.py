@@ -54,7 +54,7 @@ if __name__ == '__main__':
                   '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_test.csv']
     labels = ['Train', 'Valid', 'Test']
 
-    out_path = '../figures/'
+    out_path = '../results/figures/'
 
     plot_action_space(out_path, data_paths, labels)
     print_action_support(data_paths, labels)

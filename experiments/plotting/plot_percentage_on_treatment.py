@@ -14,34 +14,36 @@ sns.set(rc={'figure.figsize': (12, 4)})
 
 def percentage_on_treatment(actions, num_timesteps, bins_to_action):
     actions = np.array([bins_to_action[a] for a in actions])  # Convert from 5x5 actions to IV or VP
-    actions = actions.reshape(-1, num_timesteps)[:, :-1]      # -> admissions x timesteps
+    actions = actions.reshape(-1, num_timesteps)              # -> admissions x timesteps
     return np.mean(actions > 0, axis=0)
 
 
 def main(in_dir, out_dir, model_paths, dataset_file, action_bin_file):
-    dataset = pd.read_csv(dataset_file)
-
-    # Infer horizon T from dataset
-    num_timesteps = dataset.groupby('episode').size().max()
-    assert dataset.groupby('episode').size().mad() == 0  # Sanity check: each episode must have same horizon
-
     # Mapping from '0'-'24' to 5x5 action space
     action_to_bins = load_actions_to_bins(action_bin_file)
     action_to_iv = {a: x[0] for a, x in action_to_bins.items()}
     action_to_vp = {a: x[1] for a, x in action_to_bins.items()}
 
+    # Load dataset and infer horizon T
+    phys_dataset = pd.read_csv(dataset_file)
+    num_timesteps = phys_dataset.groupby('episode').size().max()
+    assert phys_dataset.groupby('episode').size().mad() == 0  # Sanity check: each episode must have same horizon
+
     # Estimate proportion on treatment for physician policy
-    iv_over_time = [percentage_on_treatment(dataset['action'].values, num_timesteps, action_to_iv)]
-    vp_over_time = [percentage_on_treatment(dataset['action'].values, num_timesteps, action_to_vp)]
+    iv_over_time = [percentage_on_treatment(phys_dataset['action'].values, num_timesteps, action_to_iv)]
+    vp_over_time = [percentage_on_treatment(phys_dataset['action'].values, num_timesteps, action_to_vp)]
     labels = ['Physician policy']
 
     # Estimate proportion on treatment for model policies
-    for model_name, model_path in model_paths.items():
+    for model_name, (model_path, dataset_path) in model_paths.items():
+
+        # Load dataset and model
+        model_dataset = pd.read_csv(dataset_path)
         policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pkl')
         encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pkl')
 
         # Create matrix of actions prescribed by policy
-        model_actions = evaluate_policy_on_dataset(encoder, policy, dataset, _type='actions')
+        model_actions = evaluate_policy_on_dataset(encoder, policy, model_dataset, _type='actions')
         iv_model = percentage_on_treatment(model_actions, num_timesteps, action_to_iv)
         vp_model = percentage_on_treatment(model_actions, num_timesteps, action_to_vp)
 
@@ -74,13 +76,14 @@ def main(in_dir, out_dir, model_paths, dataset_file, action_bin_file):
 
 
 if __name__ == '__main__':
-    paths = {'Roggeveen et al.': 'roggeveen_experiment_00000',
-             'CKCNN': 'ckcnn_experiment_00000'}
-
-    in_dir = '../results/'
-    out_dir = '../figures/'
-
-    dataset_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv'
+    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv'
+    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h_with_cv/mimic-iii_valid.csv'
     action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/action_to_vaso_fluid_bins.pkl'
 
-    main(in_dir, out_dir, paths, dataset_file, action_bin_file)
+    paths = {'Causal Transformer': ('transformer_experiment_00001', attention_data_file),
+             }
+
+    in_dir = '../results/'
+    out_dir = '../results/figures/'
+
+    main(in_dir, out_dir, paths, roggeveen_data_file, action_bin_file)

@@ -21,28 +21,28 @@ def create_action_matrix(actions, action_to_bins, labels=range(5)):
 
 
 def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
-    # Drop absorbing terminal states from dataset
-    dataset = pd.read_csv(dataset_file)
-    dataset = dataset[dataset.reward == 0]
-
-    # Mask out timesteps preceding `start_from`
-    timesteps = dataset.groupby('episode')['timestep'].transform(lambda x: np.arange(len(x)))
+    # Load dataset and mask out timesteps preceding `start_from`
+    phys_dataset = pd.read_csv(dataset_file)
+    timesteps = phys_dataset.groupby('episode')['timestep'].transform(lambda x: np.arange(len(x)))
     timestep_mask = (timesteps >= start_at).values
 
     # Load mapping from 0-25 to 5x5 action space
     action_to_bins = load_actions_to_bins(action_bin_file)
 
     # Create action matrix for physician policy
-    action_mats = [create_action_matrix(dataset['action'][timestep_mask], action_to_bins)]
+    action_mats = [create_action_matrix(phys_dataset['action'][timestep_mask], action_to_bins)]
     labels = ['Physician policy']
 
     # Create action matrix for learnt policies
-    for model_name, model_path in paths.items():
+    for model_name, (model_path, dataset_path) in paths.items():
+
+        # Load dataset and model
+        model_dataset = pd.read_csv(dataset_path)
         policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pkl')
         encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pkl')
 
         # Create action matrix of actions prescribed by policy
-        model_actions = evaluate_policy_on_dataset(encoder, policy, dataset, _type='actions')[timestep_mask]
+        model_actions = evaluate_policy_on_dataset(encoder, policy, model_dataset, _type='actions')[timestep_mask]
         action_mat = create_action_matrix(model_actions, action_to_bins)
 
         action_mats.append(action_mat)
@@ -79,15 +79,16 @@ def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
 
 
 if __name__ == '__main__':
-    paths = {'Roggeveen et al.': 'roggeveen_experiment_00000',
-             'CKCNN': 'ckcnn_experiment_00000'}
-
-    in_dir = '../results/'
-    out_dir = '../figures/'
-
-    dataset_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv'
+    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv'
+    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h_with_cv/mimic-iii_valid.csv'
     action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/action_to_vaso_fluid_bins.pkl'
 
-    main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0)  # t=6 -> estimated onset of sepsis
+    paths = {'Roggeveen et al.': ('roggeveen_experiment_00000', roggeveen_data_file),
+             }
+
+    in_dir = '../results/'
+    out_dir = '../results/figures/'
+
+    main(in_dir, out_dir, paths, roggeveen_data_file, action_bin_file, start_at=6)  # t=6 -> estimated onset of sepsis
 
 
