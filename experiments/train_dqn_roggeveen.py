@@ -14,6 +14,7 @@ import torch
 from q_learning import DQN, fit_double_dqn
 from importance_sampling import WeightedIS, IS
 from physician_entropy import PhysicianEntropy
+from utils import load_data, count_parameters
 
 
 class OPECallback:
@@ -23,7 +24,7 @@ class OPECallback:
     """
     def __init__(self, behavior_policy_file, valid_data):
         # Load behavior policy that was used to generate validation set
-        self._wis = WeightedIS(behavior_policy_file, min_samples=20)
+        self._wis = WeightedIS(behavior_policy_file)
         self._phys = PhysicianEntropy(behavior_policy_file)
         self._states = valid_data.filter(regex='x\d+').values
 
@@ -43,16 +44,12 @@ class OPECallback:
 
 
 if __name__ == '__main__':
-    # Training and validation data
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
-    print('train.size = %s  valid.size = %s' % (len(train_df) // 18, len(valid_df) // 18))
+    train_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
+    valid_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
 
-    # Evaluation callback using OPE
     callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
 
-    # Optimize DQN model
     dqn_model = DQN(state_dim=48, num_actions=25, hidden_dims=(128, 128), disallowed_actions=(1, 2, 3, 4))
 
     fit_double_dqn(experiment='results/roggeveen_experiment',

@@ -12,6 +12,7 @@ import pandas as pd
 from q_learning import DQN, fit_double_dqn
 from baseline_encoders import *
 from train_dqn_with_ckcnn import OPECallback, count_parameters  # simply reuse callback of the CKCNN
+from utils import load_data, count_parameters
 
 
 if __name__ == '__main__':
@@ -20,12 +21,10 @@ if __name__ == '__main__':
     OUT_CHANNELS = 64
     BATCH_SIZE = 32
 
-    # Training and validation data
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
-    print('train.size = %s  valid.size = %s' % (len(train_df) // 18, len(valid_df) // 18))
+    train_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
+    valid_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
 
-    # Choose encoder model
+    # Selects encoder model
     if ENCODER_METHOD == 'concat-2':
         encoder = StateConcatenation(k=2)
     elif ENCODER_METHOD == 'concat-3':
@@ -40,15 +39,12 @@ if __name__ == '__main__':
         raise Exception('Method %s not recognized' % ENCODER_METHOD)
     print('%s parameters: %d' % (ENCODER_METHOD, count_parameters(encoder)))
 
-    # create Dueling DQN controller
     dqn = DQN(state_dim=64, hidden_dims=(128,), num_actions=25)
     print('DQN parameters:  ', count_parameters(dqn))
 
-    # evaluation callback using OPE
     callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
 
-    # fit model
     fit_double_dqn(experiment='results/%s_experiment' % ENCODER_METHOD,
                    policy=dqn,
                    encoder=encoder,

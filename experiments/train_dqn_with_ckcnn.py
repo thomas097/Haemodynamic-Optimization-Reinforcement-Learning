@@ -15,6 +15,7 @@ from experience_replay import EvaluationReplay
 from ckcnn import CKCNN
 from importance_sampling import WeightedIS
 from physician_entropy import PhysicianEntropy
+from utils import load_data, count_parameters
 
 
 class OPECallback:
@@ -23,11 +24,11 @@ class OPECallback:
         states and returns the WIS estimate of V^πe.
     """
     def __init__(self, behavior_policy_file, valid_data):
-        self._wis = WeightedIS(behavior_policy_file, min_samples=20)
+        self._wis = WeightedIS(behavior_policy_file)
         self._phys = PhysicianEntropy(behavior_policy_file)
         self._replay = EvaluationReplay(valid_data, return_history=True)
 
-    def __call__(self, encoder, policy, batch_size=64):
+    def __call__(self, encoder, policy, batch_size=128):
         encoder.eval()
         policy.eval()
 
@@ -48,28 +49,19 @@ class OPECallback:
         return {'wis': weighted_is, 'phys_entropy': phys_entropy}
 
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
 if __name__ == '__main__':
-    # Load training and validation data
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
-    print('train.size = %s  valid.size = %s' % (len(train_df) // 18, len(valid_df) // 18))
+    train_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
+    valid_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
 
-    # Setup encoder model
     encoder = CKCNN(layer_channels=(48, 64), max_timesteps=18)
     print('CKCNN parameters:', count_parameters(encoder))
 
-    # Create Dueling DQN controller
     dqn = DQN(state_dim=64, hidden_dims=(128,), num_actions=25)
     print('DQN parameters:  ', count_parameters(dqn))
 
-    # Handles intermittent evaluation using OPE on validation set
     callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
-    # Fit model
+
     fit_double_dqn(experiment='results/ckcnn_experiment',
                    policy=dqn,
                    encoder=encoder,
