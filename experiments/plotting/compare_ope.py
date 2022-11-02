@@ -5,13 +5,14 @@ from doubly_robust import WeightedDoublyRobust
 from utils import *
 
 
-def main(model_paths, mdp_training_file, behavior_policy_file, method='fqe'):
+def main(in_dir, model_paths, behavior_policy_file, mdp_training_file, method='fqe'):
     # Build WIS estimator
-    wis = WeightedIS(behavior_policy_file)
+    wis = WeightedIS(behavior_policy_file, verbose=True)
 
-    # Estimate WIS/WDR of physician policy
-    phys_action_probs = pd.read_csv(behavior_policy_file).filter(regex='\d+')
-    phys_wdr_score = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method=method).fit(phys_action_probs)
+    # Estimate WIS/WDR of physician policy (using training set to fit model)
+    phys_action_probs = pd.read_csv(behavior_policy_file).filter(regex='\d+').values
+    #wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method=method).fit(phys_action_probs)
+    phys_wdr_score = 0.0#wdr(phys_action_probs)
     phys_wis_score = wis(phys_action_probs)
 
     # Store results in DataFrame
@@ -19,30 +20,30 @@ def main(model_paths, mdp_training_file, behavior_policy_file, method='fqe'):
 
     for model_name, (model_path, dataset_path) in model_paths.items():
         # Load model
-        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pkl')
-        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pkl')
+        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pt')
+        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pt')
 
         # Evaluate model on dataset
         dataset = pd.read_csv(dataset_path)
         action_probs = evaluate_policy_on_dataset(encoder, policy, dataset, _type='action_probs')
 
         # Build and train WDR estimator on evaluation policy
-        wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method=method).fit(action_probs)
+        #wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method=method).fit(action_probs)
 
         # Compute WDR and WIS estimates of V^{pi_e}
-        model_wdr_score = wdr(action_probs)
-        model_wis_score = wis(action_probs)
-        table[model_name] = [model_wis_score, model_wdr_score]
+        table[model_name] = [wis(action_probs), 0.0]#wdr(action_probs)]
 
     print(table)
 
 
 if __name__ == '__main__':
-    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv'
-    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h_with_cv/mimic-iii_valid.csv'
-    behavior_policy_file = '../../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv'
+    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv'
+    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_valid.csv'
+    behavior_policy_file = '../../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv'
 
-    paths = {'Roggeveen et al.': ('roggeveen_experiment_00000', roggeveen_data_file),
+    paths = {'Roggeveen et al.': ('roggeveen_experiment_00003', roggeveen_data_file),
              }
 
-    main(paths, roggeveen_data_file, behavior_policy_file)
+    in_dir = '../results/'
+
+    main(in_dir, paths, behavior_policy_file, roggeveen_data_file)
