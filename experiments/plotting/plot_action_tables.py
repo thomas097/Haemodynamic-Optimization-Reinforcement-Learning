@@ -38,8 +38,8 @@ def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
 
         # Load dataset and model
         model_dataset = pd.read_csv(dataset_path)
-        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pkl')
-        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pkl')
+        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pt')
+        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pt')
 
         # Create action matrix of actions prescribed by policy
         model_actions = evaluate_policy_on_dataset(encoder, policy, model_dataset, _type='actions')[timestep_mask]
@@ -57,7 +57,7 @@ def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
         # Plot action matrix side-by-side
         plt.subplot(1, len(action_mats), i + 1)
         sns.heatmap(action_mat, cmap="Blues", linewidth=0.3, vmin=0.0, vmax=max_value,
-                    cbar=False, annot=True, fmt='g', cbar_kws={"shrink": .8})
+                    cbar=False, annot=True, fmt='g', cbar_kws={"shrink": .8}, linecolor='grey')
 
         # Only show IV fluid label at left-most side
         if i == 0:
@@ -79,12 +79,11 @@ def main(in_dir, out_dir, paths, dataset_file, action_bin_file, start_at=0):
 
 
 if __name__ == '__main__':
-    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv'
-    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h_with_cv/mimic-iii_valid.csv'
-    action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/action_to_vaso_fluid_bins.pkl'
+    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv'
+    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_valid.csv'
+    action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/action_to_vaso_fluid_bins.pkl'
 
-    paths = {'Roggeveen et al.': ('roggeveen_experiment_00000', roggeveen_data_file),
-             }
+    paths = {'Transformer (ep=7250)': ('transformer_experiment_00000_ep=7250', attention_data_file)}
 
     in_dir = '../results/'
     out_dir = '../results/figures/'

@@ -39,8 +39,8 @@ def main(in_dir, out_dir, model_paths, dataset_file, action_bin_file):
 
         # Load dataset and model
         model_dataset = pd.read_csv(dataset_path)
-        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pkl')
-        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pkl')
+        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pt')
+        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pt')
 
         # Create matrix of actions prescribed by policy
         model_actions = evaluate_policy_on_dataset(encoder, policy, model_dataset, _type='actions')
@@ -76,12 +76,11 @@ def main(in_dir, out_dir, model_paths, dataset_file, action_bin_file):
 
 
 if __name__ == '__main__':
-    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv'
-    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h_with_cv/mimic-iii_valid.csv'
-    action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/action_to_vaso_fluid_bins.pkl'
+    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv'
+    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_valid.csv'
+    action_bin_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/action_to_vaso_fluid_bins.pkl'
 
-    paths = {'Causal Transformer': ('transformer_experiment_00001', attention_data_file),
-             }
+    paths = {'Transformer (ep=7250)': ('transformer_experiment_00000_ep=7250', attention_data_file)}
 
     in_dir = '../results/'
     out_dir = '../results/figures/'

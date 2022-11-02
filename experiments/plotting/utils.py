@@ -1,4 +1,5 @@
 import os
+import io
 import pickle
 import torch
 import numpy as np
@@ -13,18 +14,17 @@ def load_actions_to_bins(path):
 
 def load_pretrained(path, model):
     """ Loads pretrained model from file """
-    if model not in ['encoder.pkl', 'policy.pkl']:
-        raise Exception("Invalid model argument; Choose 'encoder.pkl' or 'policy.pkl'")
+    if model not in ['encoder.pt', 'policy.pt']:
+        raise Exception("Invalid model argument; Choose 'encoder.pt' or 'policy.pt'")
 
     full_path = os.path.join(path, model)
     if not os.path.exists(full_path):
-        if model == 'policy.pkl':
-            raise Exception('No policy.pkl in %s ' % path)
+        if model == 'policy.pt':
+            raise Exception('No policy.pt in %s ' % path)
         return None
 
-    with open(full_path, 'rb') as file:
-        model = pickle.load(file)
-    return model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    return torch.load(full_path, map_location=device)
 
 
 def evaluate_policy_on_dataset(encoder, policy, dataset, _type='qvals'):

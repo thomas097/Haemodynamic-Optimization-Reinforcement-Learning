@@ -53,9 +53,9 @@ def main(in_dir, out_dir, paths, metric, smooth_over_episodes=500):
 
 
 if __name__ == '__main__':
-    paths = {'Roggeveen et al.': 'roggeveen_experiment_00000'}
+    paths = {'Transformer': 'transformer_experiment_00000'}
 
-    metrics = ['loss', 'wis', 'avg_Q_value', 'phys_entropy']
+    metrics = ['loss', 'wis', 'avg_Q_value', 'physician_entropy']
     in_dir = '../results/'
     out_dir = '../results/figures/'
 
