@@ -3,7 +3,7 @@ import pandas as pd
 
 
 class IS:
-    def __init__(self, behavior_policy_file, gamma=1.0, min_samples=0):
+    def __init__(self, behavior_policy_file, gamma=1.0):
         """ Implementation of the Stepwise Importance Sampling (IS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -11,10 +11,6 @@ class IS:
             behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor (default: 1.0)
-            min_samples:          For sharp policies (e.g. softmax), weight degeneracy might result in unreliable
-                                  estimates. Setting `min_samples` will clip the top-`min_samples` weights to their
-                                  empirical mean, thereby reducing degeneracy and increasing effective sample size.
-                                  For details, see (Martino et al., 2018): https://ieeexplore.ieee.org/document/8450722
         """
         phys_df = pd.read_csv(behavior_policy_file)
 
@@ -28,7 +24,6 @@ class IS:
         self.timesteps = phys_df.groupby('episode').size().max()
         self.rewards = self._to_table(phys_df['reward'].values)
         self.gamma = np.power(gamma, np.arange(self.timesteps))[np.newaxis]
-        self._min_samples = min_samples
 
     @staticmethod
     def _behavior_policy(df):
@@ -64,9 +59,6 @@ class IS:
 
         # Compute cumulative importance ratio
         weights = np.cumprod(action_probs_e / action_probs_b, axis=1)
-        if self._min_samples > 0:
-            weights = self._clip(weights)
-
         if return_weights:
             return weights
 
@@ -74,7 +66,7 @@ class IS:
 
 
 class WeightedIS(IS):
-    def __init__(self, behavior_policy_file, gamma=1.0, min_samples=0):
+    def __init__(self, behavior_policy_file, gamma=1.0, verbose=False):
         """ Implementation of the Stepwise Weighted Importance Sampling (WIS) estimator.
             Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
 
@@ -82,12 +74,10 @@ class WeightedIS(IS):
             behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
             gamma:                Discount factor (default: 1.0)
-            min_samples:          For sharp policies (e.g. softmax), weight degeneracy might result in unreliable
-                                  estimates. Setting `min_samples` will clip the top-`min_samples` weights to their
-                                  empirical mean, thereby reducing degeneracy and increasing effective sample size.
-                                  For details, see (Martino et al., 2018): https://ieeexplore.ieee.org/document/8450722
+            verbose:              Whether to print information such as effective sample size (ESS) to stdout.
         """
-        super().__init__(behavior_policy_file, gamma, min_samples)
+        super().__init__(behavior_policy_file, gamma)
+        self.verbose = verbose
 
     def __call__(self, pi_e, return_weights=False):
         """ Computes the WIS estimate of V^πe.
@@ -102,14 +92,17 @@ class WeightedIS(IS):
         action_probs_b = self._to_table(np.take_along_axis(pi_b, self.actions, axis=1))
 
         # Compute cumulative importance ratio
-        ratio = np.cumprod(action_probs_e / action_probs_b, axis=1)
-        if self._min_samples > 0:
-            ratio = self._clip(ratio)
+        ratio = np.cumprod(action_probs_e / action_probs_b, axis=1) ** (1 / 2)
 
         # Normalize weights
         weights = ratio / ratio.sum(axis=0, keepdims=True)
         if return_weights:
             return weights
+
+        if self.verbose:
+            # See: http://www.nowozin.net/sebastian/blog/effective-sample-size-in-importance-sampling.html
+            ess = 1 / np.sum(weights[:, -1] ** 2)
+            print('\nEffective sample size: %.1f' % ess)
 
         return np.sum(self.gamma * weights * self.rewards)
 
@@ -131,32 +124,22 @@ if __name__ == '__main__':
             house_policy[i-17:i + 1] = crazy_action  # crazy_action is impossible (VP but no IV)
 
     # Random policy
-    random_policy = label_binarize(np.random.randint(0, 24, behavior_policy.shape[0]), classes=np.arange(25))
-    random_policy = random_policy.astype(np.float32) + np.random.uniform(0, 0.1, random_policy.shape)  # Add noise
+    random_policy = np.random.uniform(0, 1, behavior_policy.shape)  # Add noise
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
 
     # Zero-drug policy
-    zerodrug_policy = np.full(behavior_policy.shape, fill_value=1e-12)
-    zerodrug_policy[:, 0] = 1
+    zerodrug_policy = np.full(behavior_policy.shape, fill_value=1e-6)
+    zerodrug_policy[:, 0] = 1 - 24e-6
 
-    # IS/WIS + clipping
+    # IS/WIS
     imp_sampling = IS(behavior_policy_file)
-    imp_clipped = IS(behavior_policy_file, min_samples=20)
-    
-    wimp_sampling = WeightedIS(behavior_policy_file)
-    wimp_clipped = WeightedIS(behavior_policy_file, min_samples=20)
+    wimp_sampling = WeightedIS(behavior_policy_file, verbose=True)
 
     print('IS:')
     print('behavior: ', imp_sampling(behavior_policy))
     print('Dr. House:', imp_sampling(house_policy))
     print('random:   ', imp_sampling(random_policy))
     print('zero drug:', imp_sampling(zerodrug_policy))
-
-    print('\nIS + clipping:')
-    print('behavior: ', imp_clipped(behavior_policy))
-    print('Dr. House:', imp_clipped(house_policy))
-    print('random:   ', imp_clipped(random_policy))
-    print('zero drug:', imp_clipped(zerodrug_policy))
 
     print('\n', '-' * 32)
 
@@ -166,12 +149,6 @@ if __name__ == '__main__':
     print('random:   ', wimp_sampling(random_policy))
     print('zero drug:', wimp_sampling(zerodrug_policy))
 
-    print('\nWIS + clipping:')
-    print('behavior: ', wimp_clipped(behavior_policy))
-    print('Dr. House:', wimp_clipped(house_policy))
-    print('random:   ', wimp_clipped(random_policy))
-    print('zero drug:', wimp_clipped(zerodrug_policy))
-
     print('\n', '-' * 32)
 
     # Sanity check: estimate true reward
@@ -179,9 +156,6 @@ if __name__ == '__main__':
     print('\nSupport:', rewards.shape[0])
 
     total_reward = np.mean(np.sum(rewards, axis=1))
-    print('True total reward of pi_b:', total_reward)
-
-    # Plot distribution of weights
-    import matplotlib.pyplot as plt
+    print('Empirical total reward of pi_b:', total_reward)
     
     

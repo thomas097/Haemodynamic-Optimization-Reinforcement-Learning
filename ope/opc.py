@@ -24,8 +24,8 @@ class SoftOPC:
         self._prior = np.mean(self._is_success) if compute_prior else 1.0
 
     @staticmethod
-    def _ends_in_success(episode):
-        return np.ones(len(episode)) if episode.max() > 0 else np.zeros(len(episode))
+    def _ends_in_success(rewards):
+        return np.ones(len(rewards)) if rewards.max() > 0 else np.zeros(len(rewards))
 
     def __call__(self, qvals):
         qvals_all = np.take_along_axis(qvals, self._actions, axis=1).flatten()
