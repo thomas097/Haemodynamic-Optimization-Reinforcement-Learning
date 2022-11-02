@@ -10,9 +10,6 @@ from performance_tracking import PerformanceTracker
 from loss_functions import *
 
 
-INF = 1e16
-
-
 class DuelingLayer(torch.nn.Module):
     """ Implementation of a `Dueling` layer, separating state-
         value estimation and advantage function as:
@@ -47,21 +44,17 @@ class DQN(torch.nn.Module):
             layers.append(torch.nn.ELU())
         self._base = torch.nn.Sequential(*layers)
 
-        if dueling:
-            self._head = DuelingLayer(shape[-1], num_actions)
-        else:
-            self._head = torch.nn.Linear(shape[-1], num_actions)
+        # Q-head
+        params = (shape[-1], num_actions)
+        self._head = DuelingLayer(*params) if dueling else torch.nn.Linear(*params)
 
         # Initialize weights using Xavier initialization
         self.apply(self._init_xavier_uniform)
 
-        # Move to GPU if available
-        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self.to(self._device)
-
-        # Additive mask to set value of disallowed actions to -INF
-        self._action_mask = torch.zeros((1, num_actions), device=self._device)
-        self._action_mask[0, disallowed_actions] = -INF
+        # Precompute additive mask to set value of disallowed actions to -inf
+        action_mask = torch.zeros((1, num_actions))
+        action_mask[0, disallowed_actions] = -1e20
+        self._action_mask = torch.nn.Parameter(action_mask, requires_grad=False)
 
     @staticmethod
     def _init_xavier_uniform(layer):
@@ -75,19 +68,35 @@ class DQN(torch.nn.Module):
         h = self._base(states)
         return self._head(h) + self._action_mask
 
+    def q_values(self, states):
+        """ Return Q-values of actions given state """
+        states = torch.Tensor(states)
+        with torch.no_grad():
+            qvals = self(states)
+        return qvals.cpu().detach().numpy()
+
     def action_probs(self, states):
-        """ Return probability of action given state as given by softmax """
-        states = torch.Tensor(states).to(self._device)
+        """ Return probability of actions given a state by softmax """
+        states = torch.Tensor(states)
         with torch.no_grad():
             actions = torch.softmax(self(states), dim=1)
         return actions.cpu().detach().numpy()
 
     def sample(self, states):
         """ Sample action given state """
-        states = torch.Tensor(states).to(self._device)
+        states = torch.Tensor(states)
         with torch.no_grad():
             actions = torch.argmax(self(states), dim=1)
         return actions.cpu().detach().numpy()
+
+
+def soft_target_update(target, model, tau):
+    """ Performs a soft target network update as p_target = (1- tau) * p_target + tau * p_model
+    """
+    if target is not None and model is not None:  # Uses encoder?
+        with torch.no_grad():
+            for target_w, model_w in zip(target.parameters(), model.parameters()):
+                target_w.data = ((1 - tau) * target_w.data + tau * model_w.data).clone()
 
 
 def fit_double_dqn(experiment,
@@ -113,15 +122,19 @@ def fit_double_dqn(experiment,
                    min_max_reward=(-15, 15),
                    save_on=False):
 
-    # Track performance and hyperparameters
+    # GPU? GPU!
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Running on %s' % device)
+
+    # Track performance and hyperparameters of experiment/models
     tracker = PerformanceTracker(experiment)
     tracker.save_experiment_config(policy=policy.config,
                                    encoder=encoder.config if encoder else {'uses_encoder': False},
                                    experiment=locals())
 
     # Load dataset into replay buffer
-    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta,
-                                      timedelta=timedelta, return_history=encoder is not None)
+    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, timedelta=timedelta,
+                                      return_history=encoder is not None, device=device)
 
     # Adam optimizer with policy and encoder (if provided) and lr scheduler
     modules = torch.nn.ModuleList([policy])
@@ -142,11 +155,19 @@ def fit_double_dqn(experiment,
 
     # Gradient clipping to prevent catastrophic collapse
     for w in policy.parameters():
-        w.register_hook(lambda grad: torch.clamp(grad, -1, 1))
+        if w.requires_grad:
+            w.register_hook(lambda grad: torch.clamp(grad, -1, 1))
 
     #####################
     #     Training      #
     #####################
+
+    # GPU? GPU!
+    policy.to(device)
+    policy_target.to(device)
+    if encoder is not None:
+        encoder.to(device)
+        encoder_target.to(device)
 
     # Enable training mode for policy; disable for its target
     policy.train()
@@ -189,19 +210,14 @@ def fit_double_dqn(experiment,
         if lambda_consv > 0:
             loss += lambda_consv * conservative_regularizer(q_vals, q_pred)  # Minimizes Q for OOD actions
 
-        # Policy update
+        # Q-network and target updates
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         # Soft target updates
-        with torch.no_grad():
-            for policy_target_w, policy_w in zip(policy_target.parameters(), policy.parameters()):
-                policy_target_w.data = ((1 - tau) * policy_target_w.data + tau * policy_w.data).clone()
-
-            if encoder is not None:
-                for encoder_target_w, encoder_w in zip(encoder_target.parameters(), encoder.parameters()):
-                    encoder_target_w.data = ((1 - tau) * encoder_target_w.data + tau * encoder_w.data).clone()
+        soft_target_update(policy_target, policy, tau)
+        soft_target_update(encoder_target, encoder, tau)
 
         # Update lrate every few episodes
         if episode % step_scheduler_after == 0 and episode > 0:
@@ -216,10 +232,11 @@ def fit_double_dqn(experiment,
         ############################
 
         tracker.add(loss=loss.item())
-        tracker.add(avg_Q_value=torch.mean(q_vals[q_vals > -1e6]).item())  # Drop disallowed actions
-        tracker.add(abs_TD_error=torch.mean(td_error))
-        tracker.add(avg_imp_weight=torch.mean(weights))
+        tracker.add(avg_Q_value=torch.mean(q_vals[q_vals > -1e10]).item())  # Drops disallowed actions
+        tracker.add(abs_TD_error=torch.mean(td_error).item())
+        tracker.add(avg_imp_weight=torch.mean(weights).item())
 
+        # Evaluate model every few episodes
         if episode % eval_after == 0:
             if eval_func:
                 eval_args = (encoder, policy) if encoder is not None else (policy,)
@@ -228,10 +245,12 @@ def fit_double_dqn(experiment,
             tracker.save_metrics()
             print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
 
-            # Save models intermittently upon improvement (always if save_on=False)
-            if not save_on or (save_on and tracker.new_best(metric=save_on)):
-                if save_on:
-                    print('Improvement! Saving model!')
+            # Save models upon improvement (or always if save_on=False)
+            save_improved = save_on and tracker.new_best(metric=save_on)
+            if save_improved:
+                print('Model improved! Saving...')
+
+            if not save_on or save_improved:
                 tracker.save_model_pt(policy, 'policy')
                 if encoder:
                     tracker.save_model_pt(encoder, 'encoder')

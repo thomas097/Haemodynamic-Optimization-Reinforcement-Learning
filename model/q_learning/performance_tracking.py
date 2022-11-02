@@ -1,20 +1,18 @@
 import os
+import copy
+import json
 import torch
 import pickle
-import json
 import numpy as np
-from collections import defaultdict
 from glob import glob
+from collections import defaultdict
 
 
 class PerformanceTracker:
-    def __init__(self, experiment_name, window=5):
+    def __init__(self, experiment_name):
         # Store values in here
         self._scores = defaultdict(list)
         self._metrics = []
-
-        # Smooth estimates over window as they can be high variance (for printing!)
-        self._window = window
 
         # Create results directory
         self._path = os.path.join(os.getcwd(), experiment_name)
@@ -23,40 +21,32 @@ class PerformanceTracker:
         os.makedirs(self._path)
 
     def add(self, **kwargs):
+        """ Add metric=value pair to PerformanceTracker """
         for metric, value in kwargs.items():
             if metric not in self._metrics:
                 self._metrics.append(metric)
             self._scores[metric].append(value)
 
     def new_best(self, metric, maximize=True):
-        """
-            Checks whether last score on metric was best seen during training.
-            Note: As performance estimates can be high variance (e.g. WIS) we
-            average scores over a window (set by `self._smoothing`) to determine improvement.
+        """ Checks whether last score on metric was best seen during training.
         """
         if metric not in self._metrics:
             return False
 
-        scores = self._scores[metric]
-        if len(scores) < self._window + 1:
-            return False
-
-        # Smooth estimates over window of scores (set by `self._window`)
-        scores = [np.mean(scores[i: i + self._window]) for i in range(len(scores) - self._window + 1)]
-
-        # Was last (smoothed) score the best so far?
-        return scores[-1] == (np.max(scores) if maximize else np.min(scores))
+        func = np.max if maximize else np.min
+        return self._scores[metric][-1] == func(self._scores[metric])
 
     def print_stats(self):
-        # Returns string-formatted performance stats averaged over a window (set by `self._smoothing`)
-        return ', '.join(['%s = %.3f' % (m, np.mean(self._scores[m][-self._window:])) for m in self._metrics])
+        """ Returns string-formatted performance stats """
+        return ', '.join(['%s = %.3f' % (m, self._scores[m][-1]) for m in self._metrics])
 
     def save_metrics(self):
-        # Store metrics as .npy files
+        """ Store metrics as .npy files """
         for metric, values in self._scores.items():
             np.savetxt(os.path.join(self._path, metric + '.npy'), np.array(values))
 
     def save_experiment_config(self, **kwargs):
+        """ Saves configuration of experiment and model hyperparameters """
         # Build config file of serializable key:value pairs
         config = defaultdict(dict)
         for kwarg, dct in kwargs.items():
@@ -70,10 +60,7 @@ class PerformanceTracker:
             json.dump(config, f, indent=4)
 
     def save_model_pt(self, model, label):
-        # Pickle model
-        path = os.path.join(self._path, label + '.pkl')
-        with open(path, 'wb') as f:
-            pickle.dump(model, f)
-
-        # Also write state_dict to file for good measure
-        torch.save(model.state_dict(), self._path + '/state_dict_%s.pt' % label)
+        """ Pickles model to <label>.pt along with state dict """
+        # Pickle model and save state_dict
+        torch.save(model, os.path.join(self._path, label + '.pt'))
+        torch.save(model.state_dict(), os.path.join(self._path, 'state_dict_%s.pt' % label))

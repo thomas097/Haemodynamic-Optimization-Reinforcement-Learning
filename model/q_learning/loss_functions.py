@@ -35,6 +35,6 @@ def conservative_regularizer(q_all, q_chosen_actions):
         For details, see:
         (Kumar et al., 2020) CQL: https://arxiv.org/pdf/2006.04779.pdf
         OR
-        (Kaushik et al., 2022) CQL for sepsis: https://arxiv.org/pdf/2006.04779.pdf
+        (Kaushik et al., 2022) CQL for sepsis: https://arxiv.org/pdf/2203.13884.pdf
     """
-    return torch.mean(torch.log(torch.sum(torch.exp(q_all), dim=1)) - q_chosen_actions[:, 0])
+    return torch.mean(torch.log(torch.sum(torch.exp(q_all), dim=1))) - torch.mean(q_chosen_actions)

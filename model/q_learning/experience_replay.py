@@ -7,20 +7,17 @@ from tqdm import tqdm
 try:
     from keras.preprocessing.sequence import pad_sequences
 except:
-    from keras_preprocessing.sequence import pad_sequence
+    from keras_preprocessing.sequence import pad_sequences
 
 
 class EvaluationReplay:
     """ Implements an experience replay buffer to sequentially iterate over a
         dataset returning batches of individual states or complete histories.
     """
-    def __init__(self, dataset, max_len=512, return_history=False):
-        # Move states to GPU if available
-        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
+    def __init__(self, dataset, device, max_len=512, return_history=False):
         dataset = dataset.reset_index(drop=True)
         states = dataset.filter(regex='x\d+').values
-        self._states = torch.Tensor(states, device=self._device)
+        self._states = torch.Tensor(states)
 
         self._indices = self._get_all_state_indices(dataset)
         self._buffer_size = self._indices.shape[0]
@@ -29,9 +26,11 @@ class EvaluationReplay:
         # Build index of states and their histories to speed up replay
         if return_history:
             print('\nBuilding index of histories (EvaluationReplay):')
-            self._history_indices = self._build_history_index(dataset)
+            self._start_of_episode = self._build_history_index(dataset)
+
         self._return_history = return_history
         self._max_len = max_len
+        self._device = device
 
     @staticmethod
     def _get_all_state_indices(dataset):
@@ -48,8 +47,8 @@ class EvaluationReplay:
         return history_index
 
     def _consolidate_length(self, sequences, value=0):
-        arr = pad_sequences(sequences, padding="pre", truncating="pre", value=value)
-        return torch.Tensor(arr[:, -self._max_len:], device=self._device)
+        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value)
+        return torch.Tensor(arr[:, -self._max_len:])
 
     def iterate(self, batch_size=128):
         for j in range(0, self._buffer_size, batch_size):
@@ -58,16 +57,18 @@ class EvaluationReplay:
             states = []
             for i in batch_transitions:
                 if self._return_history:
-                    i_start = self._history_indices[i]
-                    states.append(self._states[i_start:i + 1])
+                    states.append(self._states[self._start_of_episode[i]: i + 1])
                 else:
                     states.append(self._states[i])
 
-            # If return_histories, consolidate their lengths
+            # If returning histories, consolidate their lengths
             if self._return_history:
-                yield self._consolidate_length(states)
+                states = self._consolidate_length(states)
             else:
-                yield torch.stack(states, dim=0)
+                states = torch.stack(states, dim=0)
+
+            # GPU? GPU!
+            yield states.to(self._device)
 
 
 class PrioritizedReplay:
@@ -75,8 +76,8 @@ class PrioritizedReplay:
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, dataset, alpha=0.6, beta0=0.4, eps=1e-2, timedelta='4h', max_len=512, return_history=False):
-        # Create single DataFrame with episode and timestep information.
+    def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, timedelta='4h', max_len=512, return_history=False):
+        # Create single DataFrame with episode and timestep information
         self._dataset = dataset.reset_index(drop=True)
         self._dataset.timestep = pd.to_datetime(self._dataset.timestep)
 
@@ -85,10 +86,9 @@ class PrioritizedReplay:
         rewards = self._dataset.reward.values
 
         # Move states, action and rewards to GPU if available
-        self._device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self._states = torch.Tensor(states).to(self._device)
-        self._actions = torch.LongTensor(actions).unsqueeze(1).to(self._device)
-        self._rewards = torch.LongTensor(rewards).unsqueeze(1).to(self._device)
+        self._states = torch.Tensor(states)
+        self._actions = torch.LongTensor(actions).unsqueeze(1)
+        self._rewards = torch.LongTensor(rewards).unsqueeze(1)
 
         # Determines indices of non-terminal states in dataset
         self._indices = self._get_non_terminal_state_indices(self._dataset)
@@ -102,6 +102,7 @@ class PrioritizedReplay:
             self._history_indices = self._build_history_index(df=self._dataset, timedelta=pd.to_timedelta(timedelta))
 
         self._return_history = return_history
+        self._device = device
         self._max_len = max_len
         self._alpha = alpha  # -> 0.0 = to uniform sampling
         self._beta0 = beta0
@@ -145,7 +146,7 @@ class PrioritizedReplay:
         self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors.cpu()).flatten()
 
     def _consolidate_length(self, sequences, value=0):
-        arr = pad_sequences(sequences, dtype=np.float32, padding="pre", truncating="pre", value=value)
+        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value)
         return torch.Tensor(arr)[:, -self._max_len:]
 
     def sample(self, N):
@@ -179,12 +180,14 @@ class PrioritizedReplay:
             states = self._consolidate_length(states)
             next_states = self._consolidate_length(next_states)
         else:
-            states = torch.stack(states, dim=0)[:, 0]  # If no history, no need to keep track of temporal dimension
+            states = torch.stack(states, dim=0)[:, 0]
             next_states = torch.stack(next_states, dim=0)[:, 0]
 
-        # Convert to torch Tensors and enable GPU devices
-        actions = torch.stack(actions, dim=0)
-        rewards = torch.stack(rewards, dim=0)
+        # Convert to torch Tensors on right device
+        states = states.to(self._device)
+        actions = torch.stack(actions, dim=0).to(self._device)
+        rewards = torch.stack(rewards, dim=0).to(self._device)
+        next_states = next_states.to(self._device)
         imp_weights = torch.Tensor(imp_weights).unsqueeze(1).to(self._device)
 
         return states, actions, rewards, next_states, batch_transitions, imp_weights
