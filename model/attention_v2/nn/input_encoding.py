@@ -10,13 +10,11 @@ class SinCosPositionalEncoding(torch.nn.Module):
     """
     def __init__(self, embedding_dim):
         super(SinCosPositionalEncoding, self).__init__()
-        # Use GPU if available
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
-
+        # Precompute 1 / 10000^(2i/d) in log-space
+        i = torch.arange(0, embedding_dim, 2).unsqueeze(0).unsqueeze(0)
+        div_term = torch.exp(i * (-math.log(10000.0) / embedding_dim))
+        self._div_term = torch.nn.Parameter(div_term, requires_grad=False)
         self._embedding_dim = embedding_dim
-        i = torch.arange(0, embedding_dim, 2, device=self._device).unsqueeze(0).unsqueeze(0)
-        self._div_term = torch.exp(i * (-math.log(10000.0) / embedding_dim))
 
     def forward(self, t):
         """ Converts a sequence of time steps into a sequence of positional embeddings
@@ -25,11 +23,9 @@ class SinCosPositionalEncoding(torch.nn.Module):
 
             returns: Embedding Tensor of shape (batch_size, num_steps, embedding_dim)
         """
-        pos = t.to(self._device).unsqueeze(2)
-        div = self._div_term.repeat(pos.size(0), 1, 1)  # Account for varying batch sizes!
-
-        pe = torch.zeros(*t.shape, self._embedding_dim, device=self._device)
-        outer_prod = torch.bmm(pos, div)
+        pos = t.unsqueeze(2)
+        outer_prod = torch.matmul(pos, self._div_term)
+        pe = outer_prod.repeat(1, 1, 2)
         pe[:, :, 0::2] = torch.sin(outer_prod)
         pe[:, :, 1::2] = torch.cos(outer_prod)
         return pe
@@ -38,18 +34,14 @@ class SinCosPositionalEncoding(torch.nn.Module):
 class LinearPositionalEncoding(torch.nn.Module):
     def __init__(self, embedding_dim, sharpness=2.0, maxlen=128):
         super(LinearPositionalEncoding, self).__init__()
-        # Use GPU if available
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
-
         self._maxlen = maxlen
         self._sharpness = sharpness
 
         self._linear = torch.nn.Sequential(
             torch.nn.Linear(1, 56),
             torch.nn.LeakyReLU(),
-            torch.nn.Linear(56, embedding_dim),
-            ).to(self._device)
+            torch.nn.Linear(56, embedding_dim)
+        )
         self._initialize()
 
     def _initialize(self, n_samples=5000, n_iters=1000, margin=8, lrate=1e-1):
@@ -85,7 +77,7 @@ class LinearPositionalEncoding(torch.nn.Module):
 
             returns:   Embedding Tensor of shape (batch_size, num_steps, embedding_dim)
         """
-        positions = t.to(self._device).unsqueeze(2) / self._maxlen
+        positions = t.unsqueeze(2) / self._maxlen
         embeddings = self._linear(positions)
         return F.normalize(embeddings, dim=2) if normalize else embeddings
 
@@ -102,10 +94,6 @@ class CategoricalEncoding(torch.nn.Module):
         super(CategoricalEncoding, self).__init__()
         self._embeddings = torch.nn.Embedding(vocab_size, embedding_dim)
 
-        # Use GPU if available
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
-
     def forward(self, items):
         """ Converts sequences of IDs into sequences of input embeddings
 
@@ -113,14 +101,14 @@ class CategoricalEncoding(torch.nn.Module):
 
             returns:   Embedding Tensor of shape (batch_size, timesteps, embedding_dim)
         """
-        return self._embeddings(items.to(self._device))
+        return self._embeddings(items)
 
 
 if __name__ == '__main__':
     # Sanity check: does PE look right?
     import matplotlib.pyplot as plt
 
-    pe = PositionalEncoding(embedding_dim=32)
+    pe = SinCosPositionalEncoding(embedding_dim=32)
     le = LinearPositionalEncoding(embedding_dim=32, maxlen=72)
 
     t = torch.arange(72).float().unsqueeze(0)

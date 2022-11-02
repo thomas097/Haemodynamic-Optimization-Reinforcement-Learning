@@ -30,12 +30,11 @@ class SelfAttention(torch.nn.Module):
         self._Q = torch.nn.Linear(d_model, d_key, bias=False)
         self._K = torch.nn.Linear(d_model, d_key, bias=False)
         self._V = torch.nn.Linear(d_model, d_model, bias=False)
-        self._inv_dk = 1 / torch.sqrt(torch.tensor(d_key))
-        self._ninf = -1e24
 
-        # Use GPU if available
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
+        # Predefine 1 / sqrt(d_key) and -inf
+        inv_dk = 1 / torch.sqrt(torch.tensor(d_key))
+        self._inv_dk = torch.nn.Parameter(inv_dk, requires_grad=False)
+        self._ninf = -1e24
 
     def forward(self, x, attn_mask, key_padding_mask):
         q = self._Q(x)
@@ -61,18 +60,16 @@ class SelfAttentionHead(torch.nn.Module):
         if out_channels % n_queries != 0:
             raise Exception('out_channels must be divisible by n_queries (%d)' % n_queries)
 
-        self._q = torch.nn.Parameter(torch.rand(1, n_queries, d_key))  # Learn queries!
+        self._q = torch.nn.Parameter(torch.rand(1, n_queries, d_key))
         self._K = torch.nn.Linear(d_model, d_key)
         self._V = torch.nn.Linear(d_model, out_channels // n_queries)
 
-        self._inv_dk = 1 / torch.sqrt(torch.tensor(d_key))
+        # Predefine 1 / sqrt(d_key) and -inf
+        inv_dk = 1 / torch.sqrt(torch.tensor(d_key))
+        self._inv_dk = torch.nn.Parameter(inv_dk, requires_grad=False)
         self._d_out = out_channels
         self._n_queries = n_queries
         self._ninf = -1e24
-
-        # Use GPU if available
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
 
     def forward(self, x, key_padding_mask=None):
         # `key_padding_mask` can be used to mask out padding

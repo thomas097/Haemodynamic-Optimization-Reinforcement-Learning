@@ -11,9 +11,10 @@ class CausalTransformer(torch.nn.Module):
         a learnable Self-Attention head.
     """
     def __init__(self, vocab, out_channels, pos_dims=32, type_dims=32, d_key=32, n_queries=8,
-                 truncate=256, padding_token=0, causal=True):
+                 truncate=256, padding_token=0, causal=True, attention_head=False):
         super(CausalTransformer, self).__init__()
         self.config = locals()
+        self._attention_head = attention_head
         self._padding_token = padding_token
         self._maxlen = truncate
         self._causal = causal
@@ -25,11 +26,10 @@ class CausalTransformer(torch.nn.Module):
         # Transformer layers
         d_model = pos_dims + type_dims + 1
         self._encoder = TransformerEncoderLayer(d_model, d_key=d_key)
-        self._head = SelfAttentionHead(d_model, out_channels, n_queries=n_queries, d_key=d_key)
-
-        # GPU? GPU!!!
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
+        if attention_head:
+            self._head = SelfAttentionHead(d_model, out_channels, n_queries=n_queries, d_key=d_key)
+        else:
+            self._head = torch.nn.Linear(d_model, out_channels)
 
     @staticmethod
     def _causal_attn_mask(t):
@@ -38,7 +38,7 @@ class CausalTransformer(torch.nn.Module):
     def _padding_key_mask(self, x_type):
         return (x_type == self._padding_token).unsqueeze(2)  # -> (batch_size, n_timesteps, dk=1)
 
-    def forward(self, x, return_last=True):
+    def forward(self, x):
         # Truncate input sequence x to at most self._maxlen
         x_type = x[:, -self._maxlen:, 0].long()
         x_val = x[:, -self._maxlen:, 1]
@@ -54,7 +54,10 @@ class CausalTransformer(torch.nn.Module):
         src_mask = self._causal_attn_mask(x_pos) if self._causal else None
 
         h = torch.relu(self._encoder(inputs, src_mask, key_padding_mask))
-        return self._head(h, key_padding_mask)
+        if self._attention_head:
+            return self._head(h, key_padding_mask)
+        else:
+            return self._head(h[:, -1])
 
 
 if __name__ == '__main__':
