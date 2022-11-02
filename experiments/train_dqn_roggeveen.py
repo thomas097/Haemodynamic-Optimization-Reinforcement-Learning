@@ -12,6 +12,7 @@ import pandas as pd
 import torch
 
 from q_learning import DQN, fit_double_dqn
+from experience_replay import EvaluationReplay
 from importance_sampling import WeightedIS, IS
 from physician_entropy import PhysicianEntropy
 from utils import load_data, count_parameters
@@ -23,31 +24,28 @@ class OPECallback:
         and the entropy between model and physician action probabilities
     """
     def __init__(self, behavior_policy_file, valid_data):
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         # Load behavior policy that was used to generate validation set
-        self._wis = WeightedIS(behavior_policy_file)
+        self._wis = WeightedIS(behavior_policy_file, verbose=True)
         self._phys = PhysicianEntropy(behavior_policy_file)
-        self._states = valid_data.filter(regex='x\d+').values
+        self._replay = EvaluationReplay(valid_data, return_history=False, device=device)  # Return Markov states!
 
-    def __call__(self, policy):
-        policy.eval()
+    def __call__(self, policy, batch_size=128):
         with torch.no_grad():
-            action_probs = policy.action_probs(self._states)
-        policy.train()
+            encoded_states = torch.concat([t.detach() for t in self._replay.iterate(batch_size)])
+            action_probs = policy.action_probs(encoded_states)
 
-        actions, counts = np.unique(np.argmax(action_probs, axis=1), return_counts=True)
-        i = np.argmax(counts)
-        print('\nmost_common_action:', actions[i])
-        print('p_most_common_action:', counts[i] / np.sum(counts))
-
-        return {'wis': self._wis(action_probs),
-                'phys_entropy': self._phys(action_probs)}
+        weighted_is = self._wis(action_probs)
+        phys_entropy = self._phys(action_probs)
+        return {'wis': weighted_is, 'physician_entropy': phys_entropy}
 
 
 if __name__ == '__main__':
-    train_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
-    valid_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
+    train_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
+    valid_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
 
-    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
+    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
 
     dqn_model = DQN(state_dim=48, num_actions=25, hidden_dims=(128, 128), disallowed_actions=(1, 2, 3, 4))
@@ -69,4 +67,5 @@ if __name__ == '__main__':
                    replay_beta=0.9,
                    step_scheduler_after=10000,
                    min_max_reward=(-15, 15),
-                   save_on=False)
+                   #lambda_consv=0.2,  # Limit bootstrapping from OOD actions
+                   save_on=None)
