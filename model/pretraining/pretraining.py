@@ -1,61 +1,85 @@
 import torch
-import random
-import numpy as np
 import pandas as pd
+import torch.nn.functional as F
 from tqdm import tqdm
 
-
-class DataLoader:
-    def __init__(self, data_file, device='cpu', seed=42):
-        # Store data under x* columns as ndarray
-        df = pd.read_csv(data_file).reset_index(drop=True)
-        self._data = df.filter(regex='x\d+').values
-
-        # Create index of episodes in dataset
-        self._indices = self._index_episodes(df)
-        self._index_size = len(self._indices)
-        self._device = device
-
-        random.seed(seed)
-
-    @staticmethod
-    def _index_episodes(df):
-        """ Creates index of tuples marking beginning and end of each episode """
-        index = []
-        with tqdm(desc="Building index...") as pbar:
-            for _, episode_df in df.groupby('episode', sort=False):
-                state_indices = episode_df.index
-                index.append((state_indices[0], state_indices[-1]))  # first to last state of episode
-                pbar.update(1)
-        return index
-
-    @staticmethod
-    def _pad_sequences(sequences, value=0.0):
-        """ Consolidates length of variable-length sequences using constant padding """
-        maxlen = max([s.shape[0] for s in sequences])
-        return np.array([np.pad(s, ((maxlen - s.shape[0], 0), (0, 0)), constant_values=value) for s in sequences])
-
-    def iterate(self, batch_size, shuffle=True):
-        """ Iterates over batches of data in dataset """
-        if shuffle:
-            random.shuffle(self._indices)
-
-        for b in range(0, self._index_size, batch_size):
-
-            episodes = []
-            for start, end in self._indices[b: b + batch_size]:
-                episodes.append(self._data[start: end + 1])
-
-            # Pad with zeros to consolidate their lengths
-            episodes = self._pad_sequences(episodes)
-
-            # Return Tensor on right device
-            yield torch.Tensor(episodes).to(self._device)
+from dataloader import DataLoader
 
 
-if __name__ == '__main__':
-    train_loader = DataLoader('../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_train.csv')
-    for x in train_loader.iterate(batch_size=64):
-        for y in x[:, :, 0]:
-            print(y)
-        break
+class CrossEntropy:
+    def __init__(self, num_classes):
+        self._softmax = torch.nn.Softmax(dim=2)
+        self._num_classes = num_classes
+
+    def _one_hot(self, y_true, mask):
+        # One-hot encode target (take care of padding/NaNs encoded with -1)
+        y_true.masked_fill_(mask, 0)
+        y_true = F.one_hot(y_true, self._num_classes).float()
+        return y_true, mask
+
+    def __call__(self, y_pred, y_true):
+        pred = self._softmax(y_pred)
+        target, mask = self._one_hot(y_true, mask=y_true < 0)
+        loss = -torch.sum(target * torch.log(pred), dim=2)
+        loss.masked_fill_(mask, 0)  # We mask out from loss entries which were once NaNs or padding
+
+        # Scale by to compensate for NaNs
+        return torch.mean(loss) * (torch.numel(loss) / torch.sum(~mask))
+
+
+def fit_behavior_cloning(experiment_name,
+                         encoder,
+                         classif_layer_sizes,
+                         dataset,
+                         callback=None,
+                         lrate=1e-3,
+                         epochs=100,
+                         batch_size=32,
+                         eval_after=10,
+                         save_on_best=True):
+
+    # Define model as encoder with dense classification head
+    dense_layers = []
+    for i in range(len(classif_layer_sizes) - 1):
+        linear = torch.nn.Linear(classif_layer_sizes[i], classif_layer_sizes[i + 1])
+        dense_layers.extend([linear, torch.nn.LeakyReLU()])
+    model = torch.nn.Sequential(encoder, *dense_layers)
+
+    criterion = CrossEntropy(num_classes=classif_layer_sizes[-1])
+    optimizer = torch.optim.Adam(model.parameters(), lr=lrate)
+
+    #####################
+    #     Training      #
+    #####################
+
+    # Place model and training data on same device (GPU if available)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+    print('Running on %s' % device)
+
+    # Place dataset into randomized replay buffer
+    dataloader = DataLoader(dataset, device=device)
+
+    # Training loop
+    for ep in range(epochs):
+        total_loss = 0.0
+        total_batches = 0
+
+        for x, y_true in tqdm(dataloader.iterate(batch_size=batch_size), desc='Ep %d' % ep):
+            # Safety fallback: skip extremely long sequences!
+            if x.shape[1] > 1000:
+                continue
+
+            loss = criterion(model(x), y_true)
+            total_loss += loss.item()
+            total_batches += 1
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if total_batches > 100:
+                break
+
+        if ep % eval_after == 0:
+            print('Ep %d: CE_loss = %.3f' % (ep, total_loss / total_batches))
