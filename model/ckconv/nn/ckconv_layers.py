@@ -86,37 +86,25 @@ class CKConv(torch.nn.Module):
         self.to(self._device)
 
         # Precompute relative positions (as we need target network with train=False)
+        max_timesteps = max_timesteps + 1 if max_timesteps % 2 == 0 else max_timesteps
         self._rel_positions = torch.linspace(-1, 1, max_timesteps).unsqueeze(0).unsqueeze(0).to(self._device)
         self._in_channels = in_channels
         self._out_channels = out_channels
 
     @property
     def kernel(self):
+        """ Returns ndarray representing kernel for visualization purposes """
         return self._kernel(self._rel_positions).view(self._out_channels, self._in_channels, -1).cpu().detach().numpy()
 
     def forward(self, x):  # <- (batch_size, num_timesteps, out_channels)
-        # Sample kernel weights from network
-        weights = self._kernel(self._rel_positions).view(self._out_channels, self._in_channels, -1)
-
-        # Run convolution with weights
-        out = self._causal_conv1d(x, weights)
-
-        # TODO: normalize to de-bias convolution output?
-        return out
-
-    def _causal_conv1d(self, inputs, weights):
-        inputs, kernel = self._causal_padding(inputs, weights)
-        return F.conv1d(inputs, kernel, bias=self._bias, padding=0)
+        kernel = self._kernel(self._rel_positions).view(self._out_channels, self._in_channels, -1)
+        signal = self._causal_padding(x, kernel)
+        return F.conv1d(signal, kernel, bias=self._bias, padding=0)
 
     @staticmethod
     def _causal_padding(x, kernel):
-        # Pad kernel to odd-length
-        if kernel.shape[-1] % 2 == 0:
-            kernel = F.pad(kernel, [1, 0], value=0.0)
-
         # Left-pad input with zeros
-        x = F.pad(x, [kernel.shape[-1] - 1, 0], value=0.0)
-        return x, kernel
+        return F.pad(x, [kernel.shape[-1] - 1, 0], value=0.0)
 
 
 class CKBlock(torch.nn.Module):

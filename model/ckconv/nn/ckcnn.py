@@ -17,11 +17,20 @@ class CKCNN(torch.nn.Module):
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
+        # Learnt padding vector to change zero-padding in input
+        self._padding = torch.nn.Parameter(torch.randn(layer_channels[0]).unsqueeze(0).unsqueeze(0)).to(self._device)
+
     @property
     def kernels(self):
         return [block.ckconv.kernel for block in self._blocks]
 
+    def _proper_padding(self, x):
+        mask = torch.all(x == 0, dim=2, keepdim=True)
+        padding = self._padding.repeat(x.shape[0], x.shape[1], 1)
+        return mask * padding + (~mask) * x
+
     def forward(self, x):  # <- (batch_size, seq_length, in_channels)
+        x = self._proper_padding(x)
         y = self._model(x.permute(0, 2, 1))
         return y[:, :, -1]
 
