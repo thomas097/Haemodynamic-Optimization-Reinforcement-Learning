@@ -19,6 +19,6 @@ if __name__ == '__main__':
                          callback=None,
                          lrate=1e-3,
                          epochs=100,
-                         batch_size=1,
+                         batch_size=16,
                          eval_after=1,
                          save_on_best=True)

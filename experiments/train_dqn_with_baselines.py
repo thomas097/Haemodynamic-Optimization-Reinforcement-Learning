@@ -16,36 +16,39 @@ from utils import load_data, count_parameters
 
 
 if __name__ == '__main__':
-    ENCODER_METHOD = 'causal_cnn'
+    # Choose history-encoding model and i/o dimensions
+    METHOD = 'gru'
     IN_CHANNELS = 48
     OUT_CHANNELS = 64
     BATCH_SIZE = 32
 
-    train_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_train.csv')
-    valid_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h_with_cv/mimic-iii_valid.csv')
+    # Training and validation sets
+    train_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
+    valid_df = load_data('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
 
-    # Selects encoder model
-    if ENCODER_METHOD == 'concat-2':
-        encoder = StateConcatenation(k=2)
-    elif ENCODER_METHOD == 'concat-3':
-        encoder = StateConcatenation(k=3)
-    elif ENCODER_METHOD == 'causal_cnn':
-        encoder = CausalCNN((IN_CHANNELS, OUT_CHANNELS), kernel_sizes=(17,), dilations=(1,))
-    elif ENCODER_METHOD == 'lstm':
+    if METHOD == 'concat-1':
+        encoder = StateConcatenation(IN_CHANNELS, OUT_CHANNELS, k=1)  # Equiv. to Markovian model
+    elif METHOD == 'concat-2':
+        encoder = StateConcatenation(IN_CHANNELS, OUT_CHANNELS, k=2)
+    elif METHOD == 'concat-3':
+        encoder = StateConcatenation(IN_CHANNELS, OUT_CHANNELS, k=3)
+    elif METHOD == 'causal_cnn':
+        encoder = CausalCNN((IN_CHANNELS, OUT_CHANNELS), kernel_sizes=(18,), dilations=(1,))
+    elif METHOD == 'lstm':
         encoder = LSTM(IN_CHANNELS, OUT_CHANNELS, batch_size=BATCH_SIZE)
-    elif ENCODER_METHOD == 'gru':
+    elif METHOD == 'gru':
         encoder = GRU(IN_CHANNELS, OUT_CHANNELS)
     else:
-        raise Exception('Method %s not recognized' % ENCODER_METHOD)
-    print('%s parameters: %d' % (ENCODER_METHOD, count_parameters(encoder)))
+        raise Exception('Method %s not recognized' % METHOD)
+    print('%s parameters: %d' % (METHOD, count_parameters(encoder)))
 
-    dqn = DQN(state_dim=64, hidden_dims=(128,), num_actions=25)
+    dqn = DQN(state_dim=64, hidden_dims=(64, 128), num_actions=25, disallowed_actions=(1, 2, 3, 4))
     print('DQN parameters:  ', count_parameters(dqn))
 
-    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv',
+    callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
                            valid_data=valid_df)
 
-    fit_double_dqn(experiment='results/%s_experiment' % ENCODER_METHOD,
+    fit_double_dqn(experiment='results/%s_experiment' % METHOD,
                    policy=dqn,
                    encoder=encoder,
                    dataset=train_df,
@@ -54,8 +57,8 @@ if __name__ == '__main__':
                    gamma=0.9,
                    tau=1e-4,
                    lambda_reward=5,
-                   num_episodes=50000,
-                   batch_size=32,
+                   num_episodes=20000,
+                   batch_size=BATCH_SIZE,
                    eval_func=callback,
                    eval_after=500,
                    scheduler_gamma=0.95,

@@ -47,7 +47,7 @@ if __name__ == '__main__':
     encoder = CKCNN(layer_channels=(48, 64), max_timesteps=18)
     print('CKCNN parameters:', count_parameters(encoder))
 
-    dqn = DQN(state_dim=64, hidden_dims=(128,), num_actions=25)
+    dqn = DQN(state_dim=64, hidden_dims=(128, 128), num_actions=25, disallowed_actions=(1, 2, 3, 4))
     print('DQN parameters:  ', count_parameters(dqn))
 
     callback = OPECallback(behavior_policy_file='../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv',
@@ -62,7 +62,7 @@ if __name__ == '__main__':
                    gamma=0.9,
                    tau=1e-4,
                    lambda_reward=5,
-                   num_episodes=50000,
+                   num_episodes=20000,
                    batch_size=32,
                    eval_func=callback,
                    eval_after=500,
@@ -70,4 +70,5 @@ if __name__ == '__main__':
                    replay_alpha=0.6,
                    replay_beta=0.9,
                    step_scheduler_after=10000,
-                   min_max_reward=(-15, 15))
+                   min_max_reward=(-15, 15),
+                   save_on='physician_entropy')
