@@ -32,7 +32,7 @@ def fit_behavior_cloning(experiment_name,
                          classif_layer_sizes,
                          dataset,
                          callback=None,
-                         lrate=1e-3,
+                         lrate=1e-4,
                          epochs=100,
                          batch_size=32,
                          eval_after=10,
@@ -78,7 +78,7 @@ def fit_behavior_cloning(experiment_name,
             loss.backward()
             optimizer.step()
 
-            if total_batches > 100:
+            if ep == 0:
                 break
 
         if ep % eval_after == 0:
