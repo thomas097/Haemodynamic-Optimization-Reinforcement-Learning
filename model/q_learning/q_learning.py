@@ -246,11 +246,11 @@ def fit_double_dqn(experiment,
             print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
 
             # Save models upon improvement (or always if save_on=False)
-            save_improved = save_on and tracker.new_best(metric=save_on)
-            if save_improved:
+            new_best = tracker.new_best(metric=save_on)
+            if new_best:
                 print('Model improved! Saving...')
 
-            if not save_on or save_improved:
+            if not save_on or new_best:
                 tracker.save_model_pt(policy, 'policy')
                 if encoder:
                     tracker.save_model_pt(encoder, 'encoder')

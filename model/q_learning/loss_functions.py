@@ -24,8 +24,7 @@ def reward_regularizer(q_pred, limit):
 def physician_regularizer(q_vals, true_actions):
     """ Force networks action probabilities to lie closely to those of the physician. """
     ce = torch.nn.CrossEntropyLoss()
-    pred_action_probs = torch.softmax(q_vals, dim=1)
-    return ce(pred_action_probs, true_actions[:, 0])
+    return ce(q_vals, true_actions[:, 0])
 
 
 def conservative_regularizer(q_all, q_chosen_actions):

@@ -27,7 +27,7 @@ class PerformanceTracker:
                 self._metrics.append(metric)
             self._scores[metric].append(value)
 
-    def new_best(self, metric, maximize=True):
+    def new_best(self, metric, maximize=False):
         """ Checks whether last score on metric was best seen during training.
         """
         if metric not in self._metrics:
