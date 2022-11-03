@@ -7,56 +7,52 @@ from transformer_layers import TransformerEncoderLayer
 
 
 class CausalTransformer(torch.nn.Module):
-    """ Implementation of a Causal Transformer (Vaswani et al., 2017) with
-        a learnable Self-Attention head.
+    """ Implementation of a Transformer (Vaswani et al., 2017)
+        with causal self-attention
     """
-    def __init__(self, vocab, out_channels, pos_dims=8, type_dims=8, d_key=8, value_dims=8, truncate=256,
-                 padding_token=0, causal=False):
+    def __init__(self, vocab, out_channels, d_model=64, d_key=16, n_blocks=3, truncate=0, padding_value=0):
         super(CausalTransformer, self).__init__()
         self.config = locals()
-        self._padding_token = padding_token
+        self._padding_value = padding_value
         self._maxlen = truncate
-        self._causal = causal
 
         # Input encoding
-        self._type_encoder = CategoricalEncoding(type_dims, vocab_size=len(vocab))
-        self._value_encoder = torch.nn.Linear(1, value_dims)
-        self._pos_encoder = torch.nn.Linear(1, pos_dims)
+        self._type_encoder = CategoricalEncoding(d_model, vocab_size=len(vocab))
+        self._value_encoder = torch.nn.Linear(1, d_model)
+        self._pos_encoder = torch.nn.Linear(1, d_model)
 
         # Transformer layers
-        d_model = pos_dims + type_dims + value_dims
-        self._encoder1 = TransformerEncoderLayer(d_model, d_key=d_key)
-        self._encoder2 = TransformerEncoderLayer(d_model, d_key=d_key)
-        self._encoder3 = TransformerEncoderLayer(d_model, d_key=d_key)
+        self._blocks = torch.nn.ModuleList()
+        for _ in range(n_blocks):
+            self._blocks.append(TransformerEncoderLayer(d_model, d_key=d_key))
         self._feedforward = torch.nn.Linear(d_model, out_channels)
-        self._leaky_relu = torch.nn.LeakyReLU()
 
     @staticmethod
-    def _causal_attn_mask(t):
-        return (t.unsqueeze(2) - t.unsqueeze(1)) > 0  # -> (batch_size, n_timesteps, n_timesteps)
+    def _create_causal_mask(t):
+        return (t - t[:, :, 0].unsqueeze(1)) > 0
 
-    def _padding_key_mask(self, x_type):
-        return (x_type == self._padding_token).unsqueeze(2)  # -> (batch_size, n_timesteps, dk=1)
+    def _create_padding_mask(self, x_type):
+        return (x_type == self._padding_value).unsqueeze(2)
 
-    def forward(self, x):
+    def forward(self, x, return_last=False):
         # Truncate input sequence x to at most self._maxlen
         x_type = x[:, -self._maxlen:, 0].long()
         x_val = x[:, -self._maxlen:, 1].unsqueeze(2)
         x_pos = x[:, -self._maxlen:, 2].unsqueeze(2)
 
         # Construct input Tensor encoding type and value
-        x = torch.concat((self._type_encoder(x_type),
-                          self._pos_encoder(x_pos),
-                          self._value_encoder(x_val)), dim=2)
+        e_pos = self._pos_encoder(x_pos)
+        e_val = self._value_encoder(x_val)
+        e_type = self._type_encoder(x_type)
+        x = e_pos + e_val + e_type
 
-        # Mask zero-padding future positions using Boolean tensors
-        key_padding_mask = self._padding_key_mask(x_type)
-        src_mask = self._causal_attn_mask(x_pos) if self._causal else None
+        # Mask zero-padding and future positions using Boolean masks
+        key_padding_mask = self._create_padding_mask(x_type)
+        casual_attn_mask = self._create_causal_mask(x_pos)
 
-        h = self._leaky_relu(self._encoder1(x, src_mask, key_padding_mask))
-        v = self._leaky_relu(self._encoder2(h, src_mask, key_padding_mask))
-        z = self._leaky_relu(self._encoder3(v, src_mask, key_padding_mask))
-        return self._leaky_relu(self._feedforward(z[:, -1]))
+        for block in self._blocks:
+            x = block(x, casual_attn_mask, key_padding_mask)
+        return self._feedforward(x[:, -1] if return_last else x)
 
 
 if __name__ == '__main__':

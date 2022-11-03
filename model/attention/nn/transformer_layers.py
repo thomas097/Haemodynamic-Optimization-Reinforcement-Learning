@@ -12,13 +12,19 @@ class TransformerEncoderLayer(torch.nn.Module):
         self.feedforward = torch.nn.Linear(d_model, d_model)
         self.layer_norm1 = torch.nn.LayerNorm(d_model, eps=layer_norm_eps)
         self.layer_norm2 = torch.nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.leaky_relu = torch.nn.LeakyReLU()
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                torch.nn.init.xavier_uniform_(p)
 
     def forward(self, x, attn_mask, key_padding_mask):
-        x_attn = self.self_attn(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
-        z = self.layer_norm1(x + x_attn)
-        z_ff = self.feedforward(z)
-        y = self.layer_norm2(z + z_ff)
-        return y
+        h = self.self_attn(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+        z = self.layer_norm1(x + h)
+        y = self.leaky_relu(self.feedforward(z))
+        return self.layer_norm2(z + y)
 
 
 class SelfAttention(torch.nn.Module):
