@@ -35,7 +35,7 @@ def eval_callback(model, valid_dataloader, criterion, batch_size):
     loss = []
     model.eval()
     with torch.no_grad():
-        for x, y in tqdm(valid_dataloader.iterate(batch_size=batch_size), desc='Running valid'):
+        for x, y in tqdm(valid_dataloader.iterate(batch_size=batch_size), desc='Computing valid_loss'):
             loss.append(criterion(model(x), y).item())
     model.train()
     return {'valid_loss': np.mean(loss)}
@@ -103,13 +103,13 @@ def fit_behavior_cloning(experiment_name,
                 loss.backward()
                 optimizer.step()
 
-                if ep == 0:
-                    break
-
                 pbar.set_postfix({'CE_loss': loss.item()})
                 pbar.update(1)
 
                 tracker.add(train_loss=loss.item())
+
+                if ep == 0:
+                    break
 
         ############################
         #   Performance Tracking   #
