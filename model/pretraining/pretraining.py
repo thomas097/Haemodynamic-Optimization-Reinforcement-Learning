@@ -1,6 +1,7 @@
-import pandas as pd
+import math
 import torch
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
 from sklearn.metrics import f1_score
@@ -43,27 +44,35 @@ def f1_callback(model, dataloader, batch_size):
     return f1_score(y_pred[mask], y_true[mask], average='macro')
 
 
-def oversample_vasopressors(df, rate):
-    """ Oversamples episodes with vasopressors to account for action imbalance """
-    # Actions with non-zero vasopressors
-    vp_actions = set(range(25)) - {0, 5, 10, 15, 20}
+def oversample_vasopressors(df):
+    """ Oversamples episodes with infrequent actions (usually vasopressors)
+        to account for action imbalance in training data
+    """
+    # Count frequency of actions
+    action_counts = df.action.value_counts(dropna=True)
 
-    max_episode_id = np.max(df.episode)
+    # Compute oversampling rate as log2(count(most_freq_action) / count(action))
+    oversampling_rates = (action_counts.max() / action_counts).apply(lambda x: math.log(x, 1.5))
+
+    # Assign each new episode a new icustay_id
+    max_episode_id = df.episode.astype(int).max()
+
     new_episodes = []
-
-    # Identify episodes with vasopressors
     for _, episode in df.groupby('episode', sort=False):
-        has_vp = episode.action.isin(vp_actions).any()
-        if has_vp:
-            # Copy episode and assign new episode id
-            for _ in range(int(rate)):
-                max_episode_id += 1
-                new_episode = episode.copy()
-                new_episode.episode = max_episode_id
-                new_episodes.append(new_episode)
+        # Compute avg. oversampling rate for actions in episode
+        avg_rate = np.mean([oversampling_rates.loc[a] for a in episode.action if not np.isnan(a)]).round()
+
+        # Copy episode and assign new episode id
+        for _ in range(int(avg_rate)):
+            max_episode_id += 1
+            new_episode = episode.copy()
+            new_episode.episode = max_episode_id
+            new_episodes.append(new_episode)
 
     # Augment original dataset
-    return pd.concat([df] + new_episodes, axis=0).reset_index(drop=True)
+    new_df = pd.concat([df] + new_episodes, axis=0).reset_index(drop=True)
+    print('Total episodes: %d' % len(new_df.episode.unique()))
+    return new_df
 
 
 def create_classifier(encoder, classif_layers):
@@ -86,20 +95,20 @@ def fit_behavior_cloning(experiment_name,
                          epochs=100,
                          batch_size=16,
                          truncate=1000,
-                         oversample_vaso=1.0,
+                         oversample_vaso=True,
                          eval_after=10,
                          save_on_best=True):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print('Running on %s' % str(device).upper())
+    print('\nRunning on %s' % str(device).upper())
 
     # Save config file with encoder/experiment params
     tracker = PerformanceTracker(experiment_name)
     tracker.save_experiment_config(encoder=encoder.config, experiment=locals())
 
-    if oversample_vaso > 1.0:
-        print('Oversampling episodes with VP by %d' % oversample_vaso)
-        train_dataset = oversample_vasopressors(train_dataset, rate=oversample_vaso)
+    if oversample_vaso:
+        print('\nOversampling episodes with infrequent VP doses')
+        train_dataset = oversample_vasopressors(train_dataset)
 
     #####################
     #     Training      #
@@ -131,7 +140,7 @@ def fit_behavior_cloning(experiment_name,
                     states = states[:, i:i + truncate]
                     actions = actions[:, i:i + truncate]
 
-                # Compute error
+                # Compute error on batch
                 loss = cross_entropy(y_pred=model(states),
                                      y_true=actions,
                                      mask=(actions >= 0),
@@ -140,6 +149,7 @@ def fit_behavior_cloning(experiment_name,
                 total_loss += loss.item()
                 total_batches += 1
 
+                # Backpropagation
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -149,6 +159,7 @@ def fit_behavior_cloning(experiment_name,
 
                 tracker.add(train_loss=loss.item())
 
+                # Break here on ep=0 to print starting performance
                 if ep == 0:
                     break
 
