@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from input_encoding import SinCosPositionalEncoding
 from transformer_layers import TransformerEncoderLayer
 
@@ -57,12 +58,20 @@ class CausalTransformer(torch.nn.Module):
             y = block(y, attn_mask=mask)
         return self._feedforward(y[:, -1] if return_last else y)
 
-    def get_attention_matrices(self, x):
+    def get_attention_matrices(self, x, softmax=False):
         """ Yields attention matrices of shape (batches, length, length) """
+        matrices = []
         with torch.no_grad():
             mask = self._get_causal_mask(x.size(1))
-            
+
             y = self._input_encoding(x) + self._get_positional_encoding(x)
             for block in self._blocks:
-                yield block.self_attn(y, attn_mask=mask, return_attn=True).detach().numpy()
+                # Extract attention matrix from layer
+                attn = block.self_attn(y, attn_mask=mask, return_attn=True).detach()
+                if softmax:
+                    attn = torch.softmax(attn, dim=2)
+
+                matrices.append(attn.numpy())
                 y = block(y, attn_mask=mask)
+
+        return np.array(matrices)
