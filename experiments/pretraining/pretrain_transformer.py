@@ -7,8 +7,8 @@ from utils import count_parameters
 
 if __name__ == '__main__':
     # Training and validation dataset
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
+    train_df = pd.read_csv('../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv')
+    valid_df = pd.read_csv('../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv')
     print('train_df.size = %d  valid_df.size = %d' % (len(train_df), len(valid_df)))
 
     # Set up model
