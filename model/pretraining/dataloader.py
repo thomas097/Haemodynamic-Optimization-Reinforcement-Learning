@@ -15,9 +15,9 @@ class DataLoader:
         self._indices = self._index_episodes(dataset)
         self._index_size = len(self._indices)
 
-        self._nan = nan  # to mark non-decision entries in TF dataset
-        self._padding = padding
         self._device = device
+        self._padding = padding
+        self._nan = nan  # to mark non-decision entries in TF dataset
         random.seed(seed)
 
     @property
@@ -59,7 +59,7 @@ class DataLoader:
             actions = self._pad_sequences(actions, value=self._nan)[:, :, 0]
 
             # Return Tensor on right device
-            states = torch.tensor(episodes).to(self._device)
+            states = torch.tensor(episodes).to(self._device).float()
             actions = torch.tensor(actions).to(self._device).long()
             yield states, actions
 
