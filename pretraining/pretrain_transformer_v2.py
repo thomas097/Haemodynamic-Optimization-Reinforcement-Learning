@@ -1,18 +1,17 @@
 import numpy as np
 import pandas as pd
-from experimental_transformer import CausalTransformer
+from transformer_models_v2 import CausalTransformer
 from pretraining import fit_behavior_cloning
-from utils import count_parameters
+from utils import count_parameters, load_data
 
 
 if __name__ == '__main__':
     # Training and validation dataset
-    train_df = pd.read_csv('../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_valid.csv')
-    print('train_df.size = %d  valid_df.size = %d' % (len(train_df), len(valid_df)))
+    train_df = load_data('../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_train.csv')
+    valid_df = load_data('../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_valid.csv')
 
     # Set up model
-    transformer = CausalTransformer(vocab_size=46, out_channels=96, d_model=64, d_key=32, n_blocks=3, truncate=50)
+    transformer = CausalTransformer(vocab_size=46, out_channels=96, d_model=64, n_heads=3, d_head=16, d_key=16, truncate=0)
     print('Transformer parameters:', count_parameters(transformer))
 
     fit_behavior_cloning(experiment_name='results/transformer_v2_pretraining',
@@ -21,9 +20,10 @@ if __name__ == '__main__':
                          num_actions=25,
                          train_dataset=train_df,
                          valid_dataset=valid_df,
-                         oversample_vaso=5,  # To account for small number of vaso treatments in training set
+                         oversample_vaso=True,  # To account for small number of vaso treatments in training set
                          lrate=1e-4,
                          epochs=100,
+                         truncate=100,
                          batch_size=32,
                          eval_after=1,
                          save_on_best=True)
