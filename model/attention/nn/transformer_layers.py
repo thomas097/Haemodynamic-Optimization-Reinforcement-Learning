@@ -10,25 +10,19 @@ class TransformerEncoderLayer(torch.nn.Module):
     """
     def __init__(self, d_model, layer_norm_eps=1e-5, d_key=32, dropout=0.1):
         super(TransformerEncoderLayer, self).__init__()
-        self._self_attn = SelfAttention(d_model, d_key=d_key)
-        self._feedforward = torch.nn.Linear(d_model, d_model)
-        self._layer_norm1 = torch.nn.LayerNorm(d_model, eps=layer_norm_eps)
-        self._layer_norm2 = torch.nn.LayerNorm(d_model, eps=layer_norm_eps)
-        self._dropout1 = torch.nn.Dropout(p=dropout)
-        self._dropout2 = torch.nn.Dropout(p=dropout)
-        self._leaky_relu = torch.nn.LeakyReLU()
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                torch.nn.init.xavier_uniform_(p)
+        self.self_attn = SelfAttention(d_model, d_key=d_key)
+        self.feedforward = torch.nn.Linear(d_model, d_model)
+        self.layer_norm1 = torch.nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.layer_norm2 = torch.nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.dropout1 = torch.nn.Dropout(p=dropout)
+        self.dropout2 = torch.nn.Dropout(p=dropout)
+        self.leaky_relu = torch.nn.LeakyReLU()
 
     def forward(self, x, attn_mask):
-        z = self._layer_norm1(x + self._self_attn(x, attn_mask=attn_mask))
-        z = self._dropout1(z)
-        y = self._layer_norm2(z + self._leaky_relu(self._feedforward(z)))
-        return self._dropout2(y)
+        z = self.layer_norm1(x + self.self_attn(x, attn_mask=attn_mask))
+        z = self.dropout1(z)
+        y = self.layer_norm2(z + self.leaky_relu(self.feedforward(z)))
+        return self.dropout2(y)
 
 
 class SelfAttention(torch.nn.Module):
@@ -50,7 +44,7 @@ class SelfAttention(torch.nn.Module):
         z = torch.exp(x)
         return z / (torch.sum(z, dim=dim, keepdim=True) + 1)
 
-    def forward(self, x, attn_mask):
+    def forward(self, x, attn_mask, return_attn=False):
         if torch.any(torch.isnan(x)):
             raise Exception('NaN encountered in SelfAttention.forward')
 
@@ -64,6 +58,9 @@ class SelfAttention(torch.nn.Module):
 
         # `attn_mask` can be used to mask out future positions and padding positions
         if attn_mask is not None:
-            self_attn.masked_fill_(mask=attn_mask, value=-float('inf'))
+            self_attn = self_attn.masked_fill(mask=attn_mask, value=-float('inf'))
+
+        if return_attn:
+            return self_attn
 
         return torch.bmm(self._softmax(self_attn, dim=2), v)
