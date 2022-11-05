@@ -130,7 +130,7 @@ def fit_behavior_cloning(experiment_name,
                     i = np.random.randint(0, states.shape[1] - truncate)
                     states = states[:, i:i + truncate]
                     actions = actions[:, i:i + truncate]
-                    
+
                 # Compute error
                 loss = cross_entropy(y_pred=model(states),
                                      y_true=actions,
@@ -170,7 +170,8 @@ def fit_behavior_cloning(experiment_name,
             new_best = tracker.new_best(metric='valid_loss')
             if save_on_best and new_best:
                 print('Model improved! Saving...')
-                tracker.save_model_pt(encoder, 'encoder')  # Only need to save the encoder
+                tracker.save_model_pt(encoder, 'encoder')
+                tracker.save_model_pt(model, 'classifier')
 
     model.eval()
     print('Done!')
