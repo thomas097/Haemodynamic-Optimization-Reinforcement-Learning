@@ -4,7 +4,7 @@ from ckconv_layers import CKBlock
 
 
 class CKCNN(torch.nn.Module):
-    def __init__(self, layer_channels=(64, 128), kernel_dims=32, max_timesteps=100):
+    def __init__(self, layer_channels=(64, 128), kernel_dims=32, max_timesteps=128):
         super(CKCNN, self).__init__()
         self.config = locals()
 
@@ -17,9 +17,6 @@ class CKCNN(torch.nn.Module):
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-        # Learnt padding vector to change zero-padding in input
-        self._padding = torch.nn.Parameter(torch.randn(layer_channels[0]).unsqueeze(0).unsqueeze(0)).to(self._device)
-
     @property
     def kernels(self):
         return [block.ckconv.kernel for block in self._blocks]
@@ -30,9 +27,9 @@ class CKCNN(torch.nn.Module):
         return mask * padding + (~mask) * x
 
     def forward(self, x):  # <- (batch_size, seq_length, in_channels)
-        x = self._proper_padding(x)
-        y = self._model(x.permute(0, 2, 1))
-        return y[:, :, -1]
+        inputs = x.permute(0, 2, 1)
+        y = self._model(inputs)
+        return y.permute(0, 2, 1)
 
 
 if __name__ == '__main__':

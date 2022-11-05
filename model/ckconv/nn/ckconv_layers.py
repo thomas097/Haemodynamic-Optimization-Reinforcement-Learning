@@ -21,9 +21,9 @@ class Sine(torch.nn.Module):
     Implements a Sine layer with tunable omega_0 (Romero et al., 2021)
     For details: https://arxiv.org/pdf/2102.02611.pdf
     """
-    def __init__(self, input_units, output_units, omega_0=1.0, bias=True):
+    def __init__(self, input_units, output_units, omega_0=1.0, use_bias=True):
         super().__init__()
-        self._linear = torch.nn.Conv1d(input_units, output_units, kernel_size=1, bias=bias)
+        self._linear = torch.nn.Conv1d(input_units, output_units, kernel_size=1, bias=use_bias)
         self._omega_0 = torch.nn.Parameter(torch.tensor(omega_0))
 
     def forward(self, x):  # <- (batch_size, num_channels, seq_length)
@@ -31,7 +31,7 @@ class Sine(torch.nn.Module):
 
 
 class LayerNorm(torch.nn.Module):
-    """ Implementation of LayerNorm using ..GroupNorm """
+    """ Implementation of LayerNorm using GroupNorm """
     def __init__(self, in_channels, eps=1e-12):
         super().__init__()
         self.layer_norm = torch.nn.GroupNorm(1, num_channels=in_channels, eps=eps)
@@ -49,8 +49,8 @@ class KernelNet(torch.nn.Module):
     def __init__(self, hidden_units, output_units, omega_0=1.0, use_bias=True):
         super().__init__()
         self.__kernel = torch.nn.Sequential(
-            Sine(1, hidden_units, omega_0=omega_0, bias=use_bias),
-            Sine(hidden_units, hidden_units, omega_0=omega_0, bias=use_bias),
+            Sine(1, hidden_units, omega_0=omega_0, use_bias=use_bias),
+            Sine(hidden_units, hidden_units, omega_0=omega_0, use_bias=use_bias),
             torch.nn.Conv1d(hidden_units, output_units, kernel_size=1)
         )
         self._initialize(omega_0)
@@ -79,13 +79,13 @@ class CKConv(torch.nn.Module):
         self._kernel = KernelNet(output_units=in_channels * out_channels,
                                  hidden_units=kernel_dims)
 
-        self._bias = torch.nn.Parameter(torch.zeros(out_channels)) if use_bias else None
+        self._bias = torch.nn.Parameter(torch.randn(out_channels)) if use_bias else None
 
         # Use GPU when available
         self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self._device)
 
-        # Precompute relative positions (as we need target network with train=False)
+        # Precompute relative positions
         max_timesteps = max_timesteps + 1 if max_timesteps % 2 == 0 else max_timesteps
         self._rel_positions = torch.linspace(-1, 1, max_timesteps).unsqueeze(0).unsqueeze(0).to(self._device)
         self._in_channels = in_channels
@@ -103,13 +103,13 @@ class CKConv(torch.nn.Module):
 
     @staticmethod
     def _causal_padding(x, kernel):
-        # Left-pad input with zeros
+        """ Performs left-padding of input sequence with kernel_size - 1 zeros """
         return F.pad(x, [kernel.shape[-1] - 1, 0], value=0.0)
 
 
 class CKBlock(torch.nn.Module):
     """ Simplified CKConv Block with layer normalization and optional
-        residual connections (Bai et. al., 2017)
+        residual connections (Bai et al., 2017)
     """
     def __init__(self, in_channels, out_channels, kernel_dims=32, max_timesteps=100, use_bias=True):
         super().__init__()
