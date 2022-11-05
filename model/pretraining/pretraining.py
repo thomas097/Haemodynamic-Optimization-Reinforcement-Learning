@@ -125,6 +125,12 @@ def fit_behavior_cloning(experiment_name,
         with tqdm(desc='Ep %d' % ep, total=batches_per_episode) as pbar:
 
             for states, actions in train_dataloader.iterate(batch_size=batch_size):
+                # Truncate excessively long sequences
+                if states.shape[1] > truncate:
+                    i = np.random.randint(0, states.shape[1] - truncate)
+                    states = states[:, i:i + truncate]
+                    actions = actions[:, i:i + truncate]
+                    
                 # Compute error
                 loss = cross_entropy(y_pred=model(states),
                                      y_true=actions,
