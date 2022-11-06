@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from transformer_models import CausalTransformer
-from pretraining import fit_behavior_cloning
+from behavior_cloning import fit_behavior_cloning
 from utils import count_parameters, load_data
 
 
@@ -29,7 +29,8 @@ if __name__ == '__main__':
                          valid_data=valid_df,
                          lrate=1e-3,
                          epochs=100,
-                         batches_per_epoch=1000,
+                         oversample_vaso=5000,   # Add additional 5000 trajectories with infrequent actions by oversampling
+                         batches_per_epoch=100,
                          truncate=256,
                          batch_size=8,
                          save_on='valid_loss')
