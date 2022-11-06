@@ -122,15 +122,15 @@ def fit_double_dqn(experiment,
                    min_max_reward=(-15, 15),
                    save_on=False):
 
-    # GPU? GPU!
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print('Running on %s' % device)
-
     # Track performance and hyperparameters of experiment/models
     tracker = PerformanceTracker(experiment)
     tracker.save_experiment_config(policy=policy.config,
                                    encoder=encoder.config if encoder else {'uses_encoder': False},
                                    experiment=locals())
+
+    # GPU? GPU!
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Running on %s' % device)
 
     # Load dataset into replay buffer
     replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, timedelta=timedelta,
@@ -243,7 +243,7 @@ def fit_double_dqn(experiment,
                 tracker.add(**eval_func(*eval_args))
 
             tracker.save_metrics()
-            print('\nEp %s/%s: %s' % (episode, num_episodes, tracker.print_stats()))
+            print('\nEp %d/%d: %s' % (episode, num_episodes, tracker.print_stats()))
 
             # Save models upon improvement (or always if save_on=False)
             new_best = tracker.new_best(metric=save_on)

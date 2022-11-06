@@ -17,7 +17,7 @@ class EvaluationReplay:
     def __init__(self, dataset, device, max_len=512, return_history=False):
         dataset = dataset.reset_index(drop=True)
         states = dataset.filter(regex='x\d+').values
-        self._states = torch.Tensor(states)
+        self._states = torch.tensor(states, dtype=torch.float32)
 
         self._indices = self._get_all_state_indices(dataset)
         self._buffer_size = self._indices.shape[0]
@@ -25,7 +25,6 @@ class EvaluationReplay:
 
         # Build index of states and their histories to speed up replay
         if return_history:
-            print('\nBuilding index of histories (EvaluationReplay):')
             self._start_of_episode = self._build_history_index(dataset)
 
         self._return_history = return_history
@@ -40,15 +39,15 @@ class EvaluationReplay:
     def _build_history_index(self, dataset):
         """ Builds an index with start/stop indices of histories for each state """
         history_index = {}
-        for _, episode in tqdm(dataset.groupby('episode', sort=False)):
+        for _, episode in tqdm(dataset.groupby('episode', sort=False), desc='Building index of histories'):
             start_state_index = np.min(episode.index)
             for i in self._get_all_state_indices(episode):
                 history_index[i] = start_state_index  # Only need to register first state of episode as end == i
         return history_index
 
-    def _consolidate_length(self, sequences, value=0):
-        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value)
-        return torch.Tensor(arr[:, -self._max_len:])
+    def _pad_batch_sequences(self, sequences, value=0):
+        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
+        return torch.tensor(arr)[:, -self._max_len:]
 
     def iterate(self, batch_size=128):
         for j in range(0, self._buffer_size, batch_size):
@@ -63,7 +62,7 @@ class EvaluationReplay:
 
             # If returning histories, consolidate their lengths
             if self._return_history:
-                states = self._consolidate_length(states)
+                states = self._pad_batch_sequences(states)
             else:
                 states = torch.stack(states, dim=0)
 
@@ -76,7 +75,12 @@ class PrioritizedReplay:
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, timedelta='4h', max_len=512, return_history=False):
+    def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, timedelta='4h', max_len=512,
+                 seed=42, return_history=False):
+        # Set random seed
+        self._seed = seed
+        np.random.seed(seed)
+
         # Create single DataFrame with episode and timestep information
         self._dataset = dataset.reset_index(drop=True)
         self._dataset.timestep = pd.to_datetime(self._dataset.timestep)
@@ -86,11 +90,11 @@ class PrioritizedReplay:
         rewards = self._dataset.reward.values
 
         # Move states, action and rewards to GPU if available
-        self._states = torch.Tensor(states)
+        self._states = torch.tensor(states, dtype=torch.float32)
         self._actions = torch.LongTensor(actions).unsqueeze(1)
         self._rewards = torch.LongTensor(rewards).unsqueeze(1)
 
-        # Determines indices of non-terminal states in dataset
+        # Determine indices of non-terminal states in dataset
         self._indices = self._get_non_terminal_state_indices(self._dataset)
 
         self._buffer_size = len(self._indices)
@@ -98,7 +102,6 @@ class PrioritizedReplay:
 
         # Build index of states and their histories to speed up replay
         if return_history:
-            print('\nBuilding index of histories (PrioritizedReplay):')
             self._history_indices = self._build_history_index(df=self._dataset, timedelta=pd.to_timedelta(timedelta))
 
         self._return_history = return_history
@@ -110,7 +113,7 @@ class PrioritizedReplay:
 
     @staticmethod
     def _get_non_terminal_state_indices(df):
-        """ Determine indices of all visitable non-terminal states in dataset"""
+        """ Determine indices of all visitable non-terminal states in dataset """
         return df.index[df.reward == 0].values
 
     @staticmethod
@@ -118,7 +121,7 @@ class PrioritizedReplay:
         """ Builds an index with start/stop indices of histories for each state """
         timedelta = pd.to_timedelta(timedelta)
         history_index = {}
-        for _, episode in tqdm(df.groupby('episode', sort=False)):
+        for _, episode in tqdm(df.groupby('episode', sort=False), desc='Building index of histories'):
             state_indices = episode.index
             timesteps = episode.timestep
             start_state_index = np.min(state_indices)  # History starts at the beginning of the episode
@@ -145,9 +148,9 @@ class PrioritizedReplay:
     def update_priority(self, transitions, td_errors):
         self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors.cpu()).flatten()
 
-    def _consolidate_length(self, sequences, value=0):
-        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value)
-        return torch.Tensor(arr)[:, -self._max_len:]
+    def _pad_batch_sequences(self, sequences, value=0.0):
+        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
+        return torch.tensor(arr)[:, -self._max_len:]
 
     def sample(self, N):
         # Stochastically sampling of transitions (indices) from replay buffer
@@ -177,8 +180,8 @@ class PrioritizedReplay:
 
         # If return_histories, consolidate their lengths
         if self._return_history:
-            states = self._consolidate_length(states)
-            next_states = self._consolidate_length(next_states)
+            states = self._pad_batch_sequences(states)
+            next_states = self._pad_batch_sequences(next_states)
         else:
             states = torch.stack(states, dim=0)[:, 0]
             next_states = torch.stack(next_states, dim=0)[:, 0]
