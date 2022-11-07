@@ -6,44 +6,69 @@ import pandas as pd
 
 from tqdm import tqdm
 from sklearn.metrics import f1_score
-from experience_replay import PrioritizedReplay
 from dataloader import DataLoader
 from performance_tracking import PerformanceTracker
 
 
 class EvaluationCallback:
-    """ Callback to evaluate model's loss on validation set
-    """
-    def __init__(self, valid_df, maxlen=0, num_samples=200):
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, valid_df, device, maxlen=0, num_samples=2000):
+        """
+        Callback to evaluate model intermittently on validation set during training
+        :param valid_df:     DataFrame with validation set
+        :param device:       Torch device on which model is stored
+        :param maxlen:       Maximum length of history
+        :param num_samples:  Max number of histories to evaluate on (for debugging purposes)
+        """
         self._data = DataLoader(valid_df, maxlen=maxlen, device=device)
         self._num_samples = num_samples
 
     @staticmethod
     def _cross_entropy(y_pred, y_true, weights):
+        """
+        Class-weighted cross entropy loss
+        :param y_pred:   Model predictions
+        :param y_true:   Target labels
+        :param weights:  Tensor containing a weight for each class
+        :return:         Loss value
+        """
         criterion = torch.nn.CrossEntropyLoss(weight=weights)
         return criterion(y_pred, y_true).item()
 
     @staticmethod
     def _f1_score(y_pred, y_true):
+        """
+        Macro-average F1 score
+        :param y_pred:   Model predictions
+        :param y_true:   Target labels
+        :return:         F1 score
+        """
         y_pred = torch.argmax(y_pred, dim=1).cpu().detach().numpy()
         y_true = y_true.cpu().detach().numpy()
         return f1_score(y_true, y_pred, average='macro')
 
     def __call__(self, model, batch_size, weights=None):
-        """ Runs evaluation over evaluation dataset """
+        """
+        Evaluates model on validation set
+        :param model:       Pytorch classification model
+        :param batch_size:  Number of samples per batch
+        :param weights:     Class weights used to counteract the class imbalance (optional)
+        :return:            Dict with CE loss and F1 scores on validation data
+        """
         # Collect predictions of model and target labels
         y_pred, y_true = [], []
 
         model.eval()
         with torch.no_grad():
+            total_samples = 0
+
             # Collect predictions of model for states in dataset
-            for k, (states, actions) in enumerate(self._data.iterate(batch_size)):
+            for states, actions in self._data.iterate(batch_size, shuffle=False):
                 y_pred.append(model(states).detach())
                 y_true.append(actions)
 
                 # Limit predictions to N batches
-                if k > self._num_samples:
+                total_samples += batch_size
+                if total_samples > self._num_samples:
                     break
         model.train()
 
@@ -60,11 +85,11 @@ class CosineWarmupScheduler:
     def __init__(self, warmup, max_lrate, max_epochs):
         """
         Cosine-based learning rate regime with warm-up
-
         :param warmup:      Number of warm-up epochs
         :param max_lrate:   Maximum learning rate
         :param max_epochs:  Number of epochs
         """
+        print('\nUsing CosineWarmupScheduler')
         self._warmup = warmup
         self._max_lrate = max_lrate
         self._max_epochs = max_epochs
@@ -72,9 +97,8 @@ class CosineWarmupScheduler:
     def set(self, optimizer, epoch):
         """
         Set optimizer learning rate according to scheduler
-
         :param optimizer:  Torch Optimizer instance
-        :param epoch:     Epoch number <= max_epochs
+        :param epoch:      Epoch number <= max_epochs
         :return:
         """
         if epoch < self._warmup:
@@ -87,7 +111,13 @@ class CosineWarmupScheduler:
 
 
 def get_class_weights(df):
-    """ Weigh action classes inversely proportional to their frequency """
+    """
+    Weigh action classes inversely proportional to their frequency
+    :param df:  DataFrame with training data
+    :return:    Tensor of class weights
+    """
+    print('\nComputing action class weights')
+    # Compute frequencies of actions relative to most freq class
     counts = df.action.value_counts()
     weights = torch.zeros(25)
     for i, count in counts.to_dict().items():
@@ -98,33 +128,38 @@ def get_class_weights(df):
     return weights.detach()
 
 
-def oversample_vasopressors(df, max_oversample):
-    """ Oversample episodes with infrequent actions (usually vasopressors)
-        to account for action class imbalance in training data
+def oversample_vasopressors(train_df, max_oversample):
     """
+    Oversample episodes with infrequent actions (usually vasopressors)
+    to account for action class imbalance in training data
+    :param df:               DataFrame containing training data
+    :param max_oversample:   Maximum number of episodes to add to existing dataset
+    :return:                 Augmented training set DataFrame with duplicated episodes
+    """
+    print('\nOversampling trajectories with infrequent VP doses')
     # Count frequency of actions
-    action_counts = df.action.value_counts(dropna=True)
+    action_counts = train_df.action.value_counts(dropna=True)
 
-    # Compute oversampling rate as log2(count(most_freq_action) / count(action))
-    oversampling_rates = (action_counts.max() / action_counts).apply(lambda x: math.log(x, 1.2))
+    # Compute oversampling rate as log(count(most_freq_action) / count(action))
+    oversampling_rates = (action_counts.max() / action_counts).apply(lambda x: math.log(x, 1.1))
 
     # Identify actions with the most infrequent actions (on average)
     episode_rates = []
-    for _, episode in df.groupby('episode', sort=False):
+    for _, episode in train_df.groupby('episode', sort=False):
         # Compute avg. oversampling rate for actions in episode
         avg_rate = int(np.mean([oversampling_rates.loc[a] for a in episode.action if not np.isnan(a)]))
         episode_rates.append((avg_rate, episode))
 
     # Repeat episodes with the most rare actions proportional to their estimated rate
     # while collectively remaining below max_oversample
-    max_episode_id = df.episode.astype(int).max()
+    max_episode_id = train_df.episode.astype(int).max()
     new_episodes = []
     for rate, episode in sorted(episode_rates, key=lambda x: -x[0]):
         if max_oversample - rate > 0:
             max_oversample -= rate
 
-            # Copy episode and assign new episode id
-            # Assign each new episode a new icustay_id
+            # Copy episodes proportional to their rate
+            # and assign new episode id
             for _ in range(rate):
                 max_episode_id += 1
                 new_episode = episode.copy()
@@ -132,9 +167,9 @@ def oversample_vasopressors(df, max_oversample):
                 new_episodes.append(new_episode)
 
     # Augment original dataset
-    new_df = pd.concat([df] + new_episodes, axis=0).reset_index(drop=True)
-    print('Total episodes: %d' % len(new_df.episode.unique()))
-    return new_df
+    new_train_df = pd.concat([train_df] + new_episodes, axis=0).reset_index(drop=True)
+    print('Total episodes: %d' % len(new_train_df.episode.unique()))
+    return new_train_df
 
 
 def fit_behavior_cloning(experiment,
@@ -142,7 +177,6 @@ def fit_behavior_cloning(experiment,
                          classifier,
                          train_data,
                          valid_data,
-                         timedelta='4h',
                          batches_per_epoch=100,
                          oversample_vaso=0,
                          epochs=200,
@@ -160,7 +194,6 @@ def fit_behavior_cloning(experiment,
 
     # Oversample vasopressors to counteract action imbalance in training set
     if oversample_vaso > 0:
-        print('\nOversampling episodes with infrequent VP doses')
         train_data = oversample_vasopressors(train_data, max_oversample=oversample_vaso)
 
     # Optimize combined encoder-classifier model w.r.t class-weighted CE loss
@@ -183,10 +216,10 @@ def fit_behavior_cloning(experiment,
     #####################
 
     # Load training data into replay buffer (set to random sampling)
-    train_dataloader = PrioritizedReplay(train_data, alpha=0.0, timedelta=timedelta, return_history=True, device=device)
+    train_dataloader = DataLoader(train_data, maxlen=truncate, device=device)
 
     # Callback to evaluate model on valid data
-    valid_callback = EvaluationCallback(valid_data, maxlen=truncate)
+    valid_callback = EvaluationCallback(valid_data, maxlen=truncate, device=device)
 
     model.train()
     for ep in range(epochs):
@@ -196,22 +229,23 @@ def fit_behavior_cloning(experiment,
         # Update learning rate acc. to scheduler
         scheduler.set(optimizer=optimizer, epoch=ep)
 
-        for _ in tqdm(range(batches_per_epoch), desc='Ep %d' % ep):
-            # Sample batch of (s, a) pairs from PER
-            states, actions, _, _, _, _ = train_dataloader.sample(N=batch_size)
+        with tqdm(total=batches_per_epoch, desc='Ep %d' % ep) as pbar:
+            # Sample batch of (s, a) pairs from training data
+            for states, actions in train_dataloader.iterate(batch_size, shuffle=True):
+                # Compute error of model
+                loss = criterion(model(states), actions.flatten())
+                total_loss += loss.item()
+                total_batches += 1
 
-            # Compute error of model on training data
-            loss = criterion(model(states), actions.flatten())
-            total_loss += loss.item()
-            total_batches += 1
+                # Backprop
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-            # Backprop
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                if ep == 0 or total_batches == batches_per_epoch:
+                    break
 
-            if ep == 0:
-                break
+                pbar.update(1)
 
         ############################
         #   Performance Tracking   #

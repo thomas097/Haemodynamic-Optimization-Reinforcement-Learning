@@ -50,7 +50,10 @@ class DataLoader:
         arr = pad_sequences(sequences, padding="pre", truncating="pre", value=value, dtype=np.float32)
         return torch.tensor(arr)[:, -self._maxlen:]
 
-    def iterate(self, batch_size):
+    def iterate(self, batch_size, shuffle=False):
+        if shuffle:
+            random.shuffle(self._indices)
+
         for j in range(0, self._buffer_size, batch_size):
             batch_transitions = self._indices[j:j + batch_size]
 
