@@ -6,42 +6,32 @@ import seaborn as sns
 
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, classification_report
-from pretraining import DataLoader
+from dataloader import DataLoader
 from utils import load_pretrained, to_numpy
 
 
-def predict_on_dataset(model, data_df, truncate=512, seed=42):
+def predict_on_dataset(model, data_df, maxlen=256, batch_size=8, num_samples=200, seed=42):
     """ Collects predictions of model on dataset """
     np.random.seed(seed)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    dataloader = DataLoader(data_df, device=device)
+    dataloader = DataLoader(data_df, device=device, maxlen=maxlen)
 
     # No need for backprop ;)
     with torch.no_grad():
         y_pred, y_true = [], []
+        total_samples = 0
 
-        with tqdm(desc='Predicting...') as pbar:
-            for k, (x, y) in enumerate(dataloader.iterate(batch_size=1)):
-                # Truncate excessively long sequences
-                if x.shape[1] > truncate:
-                    i = np.random.randint(0, x.shape[1] - truncate)
-                    x = x[:, i:i + truncate]
-                    y = y[:, i:i + truncate]
+        with tqdm(desc='Collecting predictions') as pbar:
+            for states, actions in dataloader.iterate(batch_size):
+                # Predict action class using model
+                action_preds = torch.argmax(model(states), dim=1)
+                y_pred.append(to_numpy(action_preds))
+                y_true.append(to_numpy(actions))
+                pbar.update(batch_size)
 
-                # Predict class using model
-                p = torch.argmax(model(x), dim=2)
-
-                # Mask predictions for -1 class (looking at you Transformer)
-                mask = to_numpy(y >= 0).flatten()
-                y = to_numpy(y).flatten()[mask]
-                p = to_numpy(p).flatten()[mask]
-
-                y_pred.append(p)
-                y_true.append(y)
-                pbar.update(1)
-
-                if k == 500:
+                total_samples += batch_size
+                if total_samples > num_samples:
                     break
 
     # Concatenate collected predictions as vector
@@ -50,10 +40,11 @@ def predict_on_dataset(model, data_df, truncate=512, seed=42):
     return y_true, y_pred
 
 
-def plot_confusion_matrix(model, data_df):
+def plot_confusion_matrix(model, data_df, maxlen, batch_size, num_samples):
     """ Plots confusion table of model predictions """
     # Collect predictions of model
-    y_true, y_pred = predict_on_dataset(model, data_df)
+    model.eval()
+    y_true, y_pred = predict_on_dataset(model, data_df, maxlen=maxlen, batch_size=batch_size, num_samples=num_samples)
 
     # Compute confusion matrix
     conf_mat = confusion_matrix(y_true, y_pred, labels=np.arange(25), normalize='true')
@@ -69,6 +60,11 @@ def plot_confusion_matrix(model, data_df):
 
 
 if __name__ == '__main__':
-    model = load_pretrained("../results/transformer_v2_pretraining_00000/classifier.pt")
-    data_df = pd.read_csv("../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_valid.csv")
-    plot_confusion_matrix(model, data_df)
+    model = load_pretrained("../results/transformer_v2_pretraining_00000/classifier (8).pt")
+    data = pd.read_csv("../../preprocessing/datasets/mimic-iii/attention_2h/mimic-iii_valid.csv")
+
+    plot_confusion_matrix(model=model,
+                          data_df=data,
+                          maxlen=256,
+                          batch_size=8,
+                          num_samples=5000)
