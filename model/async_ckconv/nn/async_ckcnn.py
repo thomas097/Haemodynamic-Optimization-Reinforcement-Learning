@@ -5,8 +5,9 @@ from ckconv_layers import CKConv
 
 
 class LayerNorm(torch.nn.Module):
-    """ Implementation of LayerNorm using GroupNorm """
     def __init__(self, in_channels, eps=1e-12):
+        """ Implementation of LayerNorm using GroupNorm
+        """
         super().__init__()
         self.layer_norm = torch.nn.GroupNorm(1, num_channels=in_channels, eps=eps)
 
@@ -15,8 +16,19 @@ class LayerNorm(torch.nn.Module):
 
 
 class AsyncCKCNN(torch.nn.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels, positions, d_kernel=16, padding_value=0):
+    def __init__(self, in_channels, hidden_channels, out_channels, positions, d_kernel=16, use_bias=True, padding_value=0):
+        """
+        Causal CKCNN (Romero et al., 2021) for irregular time series with asynchronous features
+        :param in_channels:      Number of input channels / features
+        :param hidden_channels:  Number of hidden channels / features
+        :param out_channels:     Number of output channels / features
+        :param positions:        Tensor of sorted positions/times at which to evaluate the convolution
+        :param d_kernel:         Number of latent dimensions of the kernel network
+        :param use_bias:         Whether to include an additive bias (default: True)
+        :param padding_value:    Value assigned to padding (default: 0)
+        """
         super(AsyncCKCNN, self).__init__()
+        assert positions.size(0) % 2 != 0  # positions must be odd
         self.config = locals()
 
         # use AsyncCKConv to 'regularize' asynchronous, irregularly sampled input
@@ -25,17 +37,19 @@ class AsyncCKCNN(torch.nn.Module):
             out_channels=hidden_channels,
             d_kernel=d_kernel,
             positions=positions,
-            padding_value=padding_value
+            padding_value=padding_value,
+            use_bias=use_bias
         )
         self._ckconv2 = CKConv(
             in_channels=hidden_channels,
             out_channels=hidden_channels,
             max_timesteps=positions.size(0),
             d_kernel=d_kernel,
-            use_bias=True
+            use_bias=use_bias
         )
         self._layer_norm1 = LayerNorm(hidden_channels)
         self._layer_norm2 = LayerNorm(hidden_channels)
+        self._linear = torch.nn.Conv1d(hidden_channels, out_channels, kernel_size=1)
         self._relu = torch.nn.LeakyReLU()
 
     def kernels(self, x):
@@ -61,7 +75,8 @@ class AsyncCKCNN(torch.nn.Module):
                              or, if return_last=True, (batch_size, out_channels)
         """
         h = self._relu(self._layer_norm1(self._ckconv1(x)))
-        y = self._relu(self._layer_norm2(self._ckconv2(h)) + h)
+        z = self._relu(self._layer_norm2(self._ckconv2(h)) + h)
+        y = self._linear(z)
         return y[:, :, -1] if return_last else y
 
 
@@ -72,7 +87,7 @@ if __name__ == '__main__':
     x[:, :, 2] = torch.cumsum(torch.rand(size=(32, 256)), dim=1)
     x[:, :25] = 0
 
-    timesteps = torch.linspace(1, 140, 100)
+    timesteps = torch.linspace(1, 140, 101)
     conv = AsyncCKCNN(
         in_channels=47,
         hidden_channels=56,

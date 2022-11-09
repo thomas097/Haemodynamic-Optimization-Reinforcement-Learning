@@ -1,12 +1,14 @@
 import torch
 import torch.nn.functional as F
+from torch.distributions.normal import Normal
+import numpy as np
 import matplotlib.pyplot as plt
 
 
 class Sine(torch.nn.Module):
     def __init__(self, in_channels, out_channels, omega_0=1.0, use_bias=True):
         """
-        Implements a Sine layer (Romero et al., 2021) with tunable omega_0
+        Implements a Sine layer (Romero et al., 2021) with tunable frequency omega_0
         For details: https://arxiv.org/pdf/2102.02611.pdf
         :param in_channels:   Number of input channels / features
         :param out_channels:  Number of output channels / features
@@ -23,7 +25,7 @@ class Sine(torch.nn.Module):
         :param x:  Feature map of shape (batch_size, in_channels, height, width)
         :returns:  Feature map of shape (batch_size, out_channels, height, width)
         """
-        return torch.sin(self._linear(x))
+        return torch.sin(self._omega_0 * self._linear(x))
 
 
 class KernelNet(torch.nn.Module):
@@ -51,8 +53,7 @@ class KernelNet(torch.nn.Module):
         """
         first_layer = True
         for (i, layer) in enumerate(self.modules()):
-            if isinstance(layer, torch.nn.Conv1d):
-                # init uniformly if first layer
+            if isinstance(layer, torch.nn.Conv2d):  # Note: Sine's are 2D here as they work on |t|x|t| distance matrices!
                 if first_layer:
                     layer.weight.data.uniform_(-1, 1)
                     first_layer = False
@@ -72,7 +73,7 @@ class KernelNet(torch.nn.Module):
 class AsyncCKConv(torch.nn.Module):
     def __init__(self, in_channels, out_channels, positions, d_kernel, use_bias=True, padding_value=0):
         """
-        Causal continuous kernel CNN for irregular time series with asynchronous features
+        Causal CK convolutional layer for irregular time series with asynchronous features
         :param in_channels:      Number of input features
         :param out_channels:     Number of output features
         :param positions:        Tensor of sorted positions/times at which to evaluate the convolution
@@ -86,7 +87,6 @@ class AsyncCKConv(torch.nn.Module):
         self._net = KernelNet(in_channels=in_channels + 1,
                               hidden_channels=d_kernel,
                               out_channels=out_channels)
-
         # learn bias directly
         if use_bias:
             self._bias = torch.nn.Parameter(torch.randn(1, out_channels, 1))
@@ -134,6 +134,33 @@ class AsyncCKConv(torch.nn.Module):
         # if feature, value and timestep are all zero => assume padding
         return (torch.all(x == self._padding_value, dim=2)).unsqueeze(1).unsqueeze(2)
 
+    @staticmethod
+    def _estimate_inv_density(x_feat, x_time, h=1):
+        """
+        Estimates for each observation x_i in x, a kernel-density estimate of the local density
+        around x_i to discount clusters of close points.
+        For details, see wikipedia: https://en.wikipedia.org/wiki/Kernel_density_estimation
+        :param x_feat:  LongTensor of feature indices of shape (batch_size, num_observations)
+        :param x_time:  FloatTensor of time points of shape (batch_size, num_observations)
+        :param h:       Scaled kernel parameter (higher is smoother)
+        :returns:       Density estimates of shape (batch_size, 1, num_observations, 1)
+        """
+        # compute scaled distance between all points of all features
+        scaled_dists = (x_time.unsqueeze(1) - x_time.unsqueeze(2)) / h
+
+        # compute value of density K for distance (assuming normal kernel)
+        normal = Normal(torch.tensor([0.0]), torch.tensor([1.0]))
+        k = torch.exp(normal.log_prob(scaled_dists))
+
+        # mask out cross-feature / channel distances
+        within_feat = (x_feat.unsqueeze(1) - x_feat.unsqueeze(2)) == 0
+        k[~within_feat] = 0
+
+        # estimate within-feature inverse density
+        N = torch.sum(within_feat, dim=1, keepdim=True)
+        density = torch.sum(k, dim=1, keepdim=True) / (N * h)
+        return 1 / density.unsqueeze(3)
+
     def forward(self, x, return_kernels=False):
         """
         Forward pass through AsyncCKConv
@@ -155,6 +182,10 @@ class AsyncCKConv(torch.nn.Module):
                                 self._padding_mask(x))
         kernel = kernel.masked_fill(mask=mask, value=0.0)
 
+        # scale values by density around observation in same channel
+        # to de-bias the convolution operation, see: https://arxiv.org/abs/2102.02611
+        x_vals *= self._estimate_inv_density(x_feat, x_time)
+
         # convolution as matrix-product with sampled kernel
         out = torch.matmul(kernel, x_vals)[:, :, :, 0] + self._bias
 
@@ -168,10 +199,20 @@ if __name__ == '__main__':
     x[:, :, 2] = torch.cumsum(torch.rand(size=(32, 256)), dim=1)
     x[:, :25] = 0
 
-    timesteps = torch.linspace(1, 140, 100)
+    timesteps = torch.linspace(1, torch.max(x[0, :, 2]), 100)
     conv = AsyncCKConv(in_channels=47,
                        out_channels=96,
                        d_kernel=16,
                        positions=timesteps)
 
     print('out:', conv(x).shape)
+
+    # what are we seeing?
+    import matplotlib.pyplot as plt
+
+    y = conv(x)[0].detach().numpy()
+    plt.subplot(2, 1, 1)
+    plt.imshow(y, aspect='auto')
+    plt.subplot(2, 1, 2)
+    plt.plot(np.mean(y, axis=0))
+    plt.show()
