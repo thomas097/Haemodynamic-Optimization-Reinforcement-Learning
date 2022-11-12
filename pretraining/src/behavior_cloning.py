@@ -11,7 +11,7 @@ from performance_tracking import PerformanceTracker
 
 
 class EvaluationCallback:
-    def __init__(self, valid_df, device, maxlen=0, num_samples=2000):
+    def __init__(self, valid_df, device, maxlen=0, num_samples=20):
         """
         Callback to evaluate model intermittently on validation set during training
         :param valid_df:     DataFrame with validation set
@@ -104,7 +104,7 @@ class CosineWarmupScheduler:
         if epoch < self._warmup:
             lrate = (epoch / self._warmup) * self._max_lrate
         else:
-            lrate = self._max_lrate * 0.5 * (1 + np.cos(np.pi * epoch / self._max_epochs))
+            lrate = self._max_lrate * 0.5 * (1 + np.cos(np.pi * (epoch - self._warmup) / (self._max_epochs - self._warmup)))
 
         for g in optimizer.param_groups:
             g['lr'] = lrate

@@ -47,7 +47,7 @@ class DataLoader:
 
     def _pad_batch_sequences(self, sequences, value=0):
         """ Pads sequences in list [s0, s1, ..., sn] to equal length """
-        arr = pad_sequences(sequences, padding="pre", truncating="pre", value=value, dtype=np.float32)
+        arr = pad_sequences(sequences, padding="pre", value=value, dtype=np.float32)
         return torch.tensor(arr)[:, -self._maxlen:]
 
     def iterate(self, batch_size, shuffle=False):
