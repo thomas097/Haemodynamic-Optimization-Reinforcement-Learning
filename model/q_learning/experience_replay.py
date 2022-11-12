@@ -123,7 +123,7 @@ class PrioritizedReplay:
             start_index = np.min(episode.index)  # History starts at the beginning of the episode
             state_indices = episode.index[episode.action.notna()]
 
-            for i in enumerate(range(len(state_indices) - 1)):
+            for i in range(len(state_indices) - 1):
                 state_index = state_indices[i]
                 next_state_index = state_indices[i + 1]
                 history_index[state_index] = (start_index, next_state_index)  # Define history as start_state:next_state
