@@ -75,8 +75,7 @@ class PrioritizedReplay:
         for off-policy RL training from log-data.
         See https://arxiv.org/pdf/1511.05952v3.pdf for details.
     """
-    def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, timedelta='4h', max_len=512,
-                 seed=42, return_history=False):
+    def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, max_len=512, seed=42, return_history=False):
         # Set random seed
         self._seed = seed
         np.random.seed(seed)
@@ -102,7 +101,7 @@ class PrioritizedReplay:
 
         # Build index of states and their histories to speed up replay
         if return_history:
-            self._history_indices = self._build_history_index(df=self._dataset, timedelta=pd.to_timedelta(timedelta))
+            self._history_indices = self._build_history_index(self._dataset)
 
         self._return_history = return_history
         self._device = device
@@ -117,19 +116,17 @@ class PrioritizedReplay:
         return df.index[df.reward == 0].values
 
     @staticmethod
-    def _build_history_index(df, timedelta):
+    def _build_history_index(df):
         """ Builds an index with start/stop indices of histories for each state """
-        timedelta = pd.to_timedelta(timedelta)
         history_index = {}
         for _, episode in tqdm(df.groupby('episode', sort=False), desc='Building index of histories'):
-            state_indices = episode.index
-            timesteps = episode.timestep
-            start_state_index = np.min(state_indices)  # History starts at the beginning of the episode
+            start_index = np.min(episode.index)  # History starts at the beginning of the episode
+            state_indices = episode.index[episode.action.notna()]
 
-            non_terminal_indices = state_indices[episode.reward == 0]  # Which states are intermediate states?
-            for i in non_terminal_indices:
-                next_state_index = np.max(state_indices[timesteps <= timesteps.loc[i] + timedelta])
-                history_index[i] = (start_state_index, next_state_index)  # Define history as start_state:next_state
+            for i in enumerate(range(len(state_indices) - 1)):
+                state_index = state_indices[i]
+                next_state_index = state_indices[i + 1]
+                history_index[state_index] = (start_index, next_state_index)  # Define history as start_state:next_state
 
         return history_index
 

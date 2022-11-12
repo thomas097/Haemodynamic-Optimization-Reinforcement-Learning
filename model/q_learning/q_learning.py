@@ -4,18 +4,16 @@ import torch
 import numpy as np
 
 from tqdm import tqdm
-from datetime import datetime
 from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
 from loss_functions import *
 
 
 class DuelingLayer(torch.nn.Module):
-    """ Implementation of a `Dueling` layer, separating state-
-        value estimation and advantage function as:
-        Q(s, a) = V(s) + [A(s, a) - mean_a(A(s, a))]
-    """
     def __init__(self, input_dim, output_dim):
+        """ Implementation of a `Dueling` layer, separating state-value
+        estimation and advantage function as: Q(s, a) = V(s) + [A(s, a) - mean_a(A(s, a))]
+        """
         super(DuelingLayer, self).__init__()
         self._val = torch.nn.Linear(input_dim, 1)
         self._adv = torch.nn.Linear(input_dim, output_dim)
@@ -28,8 +26,8 @@ class DuelingLayer(torch.nn.Module):
 
 class DQN(torch.nn.Module):
     """ Implementation of a DQN model (Mnih et al., 2013). By default, DQN will
-        employ a dueling architecture as proposed in (van Hasselt et al., 2015).
-        For details: https://arxiv.org/pdf/1511.06581.pdf
+    employ a dueling architecture as proposed in (van Hasselt et al., 2015).
+    For details: https://arxiv.org/pdf/1511.06581.pdf
     """
     def __init__(self, state_dim=10, hidden_dims=(), num_actions=2, disallowed_actions=(), dueling=True):
         super(DQN, self).__init__()
@@ -103,7 +101,6 @@ def fit_double_dqn(experiment,
                    policy,
                    dataset,
                    encoder=None,
-                   timedelta='4h',
                    num_episodes=1,
                    lrate=1e-3,
                    gamma=0.99,
@@ -133,8 +130,8 @@ def fit_double_dqn(experiment,
     print('Running on %s' % device)
 
     # Load dataset into replay buffer
-    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, timedelta=timedelta,
-                                      return_history=encoder is not None, device=device)
+    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, device=device,
+                                      return_history=encoder is not None)
 
     # Adam optimizer with policy and encoder (if provided) and lr scheduler
     modules = torch.nn.ModuleList([policy])
@@ -149,6 +146,7 @@ def fit_double_dqn(experiment,
 
     # Freeze encoder (optional)
     if encoder is not None and freeze_encoder:
+        encoder.eval()
         for param in encoder.parameters():
             param.requires_grad = False
         print('Freezing encoder...')
@@ -172,7 +170,7 @@ def fit_double_dqn(experiment,
     # Enable training mode for policy; disable for its target
     policy.train()
     policy_target.eval()
-    if encoder is not None:
+    if encoder is not None and freeze_encoder is False:
         encoder.train()
         encoder_target.eval()
 
