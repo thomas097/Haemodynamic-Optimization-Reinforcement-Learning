@@ -4,14 +4,29 @@ import pandas as pd
 from tqdm import tqdm
 
 
-class FuncApproximator(torch.nn.Module):
-    def __init__(self, state_dims, num_actions):
-        super().__init__()
+class MLP(torch.nn.Module):
+    def __init__(self, state_dims, num_actions, hidden_dims=24):
+        """ Simple Multi-Layer Perceptron for estimating the FQE Q-function
+        :param state_dims:  Number of state space features
+        :param num_actions: Number of actions
+        :param hidden_dims: Number of hidden units of feature networks
+        """
+        super(MLP, self).__init__()
+        # feature network + Q-network
         self._estimator = torch.nn.Sequential(
-            torch.nn.Linear(state_dims, num_actions)
+            torch.nn.Linear(state_dims, hidden_dims),
+            torch.nn.LeakyReLU(),
+            torch.nn.Linear(hidden_dims, num_actions)
         )
 
     def forward(self, states, hard_actions=None, action_probs=None):
+        """ Returns q values of actions
+        :param states:        FloatTensor of shape (num_states, num_features)
+        :param hard_actions:  Actions chosen by physician (optional). If given, will
+                              only return Q-estimates of behavior policy's actions
+        :param action_probs:  Probability of action under evaluation policy (optional).
+                              If given, will return expected return using SARSA target
+        """
         q_pred = self._estimator(states)
         if hard_actions is not None:
             return q_pred.gather(dim=1, index=hard_actions.unsqueeze(1))[:, 0]
@@ -21,9 +36,9 @@ class FuncApproximator(torch.nn.Module):
 
 
 class FQEDataset:
-    """ Convenience wrapper around dataset
-    """
-    def __init__(self):
+    def __init__(self, training_file):
+        """ Convenience wrapper to parse and store training dataset
+        """
         self.state_dims = 0
         self.num_timesteps = 0
         self.all_states = None
@@ -34,33 +49,9 @@ class FQEDataset:
         self.next_states = None
         self.last_state_idx = []
         self.first_state_idx = []
+        self._unpack_(training_file)
 
-
-class FittedQEvaluation:
-    """ Implementation of the Fitted Q-Evaluation (FQE) estimator for Off-policy
-        Policy Evaluation (OPE). For details, see:
-        http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
-    """
-    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-2, iters=1000, reg=1e-2):
-        # Unpack training data file as FQEDataset object holding states, actions, rewards, etc.
-        self._train = self._unpack_training_file(training_file)
-
-        # Model + hyperparameters
-        self._estimator = FuncApproximator(self._train.state_dims, num_actions)
-        self._gamma = gamma
-        self._iters = iters
-
-        # Optimization
-        self._criterion = torch.nn.MSELoss()
-        self._optimizer = torch.optim.SGD(self._estimator.parameters(), lr=lrate, weight_decay=reg)
-        self._fitted = False
-
-    @property
-    def fitted(self):
-        return self._fitted
-
-    @staticmethod
-    def _unpack_training_file(training_file):
+    def _unpack_(self, training_file):
         # Unpack training_file file into states, actions, etc.
         train_df = pd.read_csv(training_file).reset_index(drop=True)
         all_states = train_df.filter(regex='x\d+').values
@@ -79,32 +70,57 @@ class FittedQEvaluation:
         next_states = np.delete(all_states, first_state_idx, axis=0)
 
         # Pack data into FQEDataset object
-        dataset = FQEDataset()
-        dataset.state_dims = states.shape[1]
-        dataset.num_timesteps = num_timesteps
-        dataset.all_states = torch.Tensor(all_states)
-        dataset.all_actions = torch.LongTensor(all_actions)
-        dataset.states = torch.Tensor(states)
-        dataset.actions = torch.LongTensor(actions)
-        dataset.rewards = torch.Tensor(rewards)
-        dataset.next_states = torch.Tensor(next_states)
-        dataset.last_state_idx = last_state_idx
-        dataset.first_state_idx = first_state_idx
-        return dataset
+        self.state_dims = states.shape[1]
+        self.num_timesteps = num_timesteps
+        self.all_states = torch.Tensor(all_states)
+        self.all_actions = torch.LongTensor(all_actions)
+        self.last_state_idx = last_state_idx
+        self.first_state_idx = first_state_idx
+        self.states = torch.Tensor(states)
+        self.actions = torch.LongTensor(actions)
+        self.rewards = torch.Tensor(rewards)
+        self.next_states = torch.Tensor(next_states)
+
+
+class FittedQEvaluation:
+    def __init__(self, training_file, num_actions=25, gamma=0.99, lrate=1e-2, iters=1000):
+        """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
+        For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
+        :param training_file:  Dataset used to train FQE estimator (only aggregated dataset is supported for now)
+        :param num_actions:    Number of possible actions by agent
+        :param gamma:          Discount factor
+        :param lrate:          Learning rate
+        :param iters:          Number of itraining iterations
+        """
+        # Pack training data file into a FQEDataset object holding states, actions, rewards, etc.
+        self._train = FQEDataset(training_file)
+        self._estimator = MLP(self._train.state_dims, num_actions)
+        self._gamma = gamma
+        self._iters = iters
+        self._fitted = False
+
+        self._criterion = torch.nn.MSELoss()
+        self._optimizer = torch.optim.SGD(self._estimator.parameters(), lr=lrate)
+
+    @property
+    def fitted(self):
+        return self._fitted
 
     def fit(self, policy_action_probs):
-        """
-        Fits FQE estimator for Q^pi to states, actions, rewards and next
-        states obtained through a behavior policy.
+        """ Fits FQE estimator for Q^pi_e with state-action-reward-nextstate transitions
+        collected under the behavior policy
+        :param policy_action_probs:  Tensor of action probabilities for each state
         """
         # Limit policy's action probabilities to pi(*|s')
         policy_next_action_probs = np.delete(policy_action_probs, self._train.first_state_idx, axis=0)
         policy_next_action_probs = torch.Tensor(policy_next_action_probs)
 
-        # Mask out expected future reward at next state if terminal
+        assert policy_next_action_probs.shape[0] == self._train.states.shape[0]
+
+        # define mask to mask out expected reward at next state in terminal states
         reward_mask = (self._train.rewards == 0).float()
 
-        # Perform policy iteration
+        # perform policy iteration
         with tqdm(range(self._iters)) as pbar:
             for _ in pbar:
                 # Q-estimate
@@ -149,7 +165,7 @@ class FittedQEvaluation:
 
 if __name__ == '__main__':
     # Behavior policy
-    behavior_df = pd.read_csv('physician_policy/roggeveen_4h/mimic-iii_train_behavior_policy.csv')
+    behavior_df = pd.read_csv('physician_policy/aggregated_1h/mimic-iii_train_behavior_policy.csv')
     behavior_action_probs = behavior_df.filter(regex='\d+').values  # assume 25 actions
 
     # Zero policy
@@ -162,14 +178,15 @@ if __name__ == '__main__':
     random_action_probs = random_action_probs / np.sum(random_action_probs, axis=1, keepdims=True)
 
     # Fit FQEs
-    training_file = '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv'
+    # Note: always use aggregated data file for training (time points in non-aggregated file will match!)
+    training_file = '../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_train.csv'
     behavior_estimator_fqe = FittedQEvaluation(training_file).fit(behavior_action_probs)
-    zerodrug_estimator_fqe = FittedQEvaluation(training_file).fit(zerodrug_action_probs)
-    random_estimator_fqe = FittedQEvaluation(training_file).fit(random_action_probs)
-
-    print('FQE - V(s0):')
     print('Behavior: ', np.mean(behavior_estimator_fqe.state_value(behavior_action_probs)))
+
+    zerodrug_estimator_fqe = FittedQEvaluation(training_file).fit(zerodrug_action_probs)
     print('Zero-drug:', np.mean(zerodrug_estimator_fqe.state_value(zerodrug_action_probs)))
+
+    random_estimator_fqe = FittedQEvaluation(training_file).fit(random_action_probs)
     print('Random:   ', np.mean(random_estimator_fqe.state_value(random_action_probs)))
 
 
