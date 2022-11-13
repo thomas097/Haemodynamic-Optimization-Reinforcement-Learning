@@ -138,12 +138,40 @@ def plot(iv_action_props, vp_action_props, iv_labels, vp_labels):
     plt.show()
 
 
+def physician_actions_over_time(dataset, bin_file):
+    """ Plots actions of physician over time """
+    # determine which IV/VP action (0 - 4) was takes at each timestep in each episode
+    dataset = dataset[dataset.action.notna()]
+    iv_bins, vp_bins = action_to_iv_vp_bins(dataset.action, bin_file=bin_file)
+
+    # create table of shape (n_episodes, n_timesteps)
+    n_episodes = len(dataset.episode.unique())
+    n_timesteps = dataset.episode.value_counts().values[0]
+    iv_bins = iv_bins.reshape(n_episodes, n_timesteps)
+    vp_bins = vp_bins.reshape(n_episodes, n_timesteps)
+
+    # determine proportions of IV/VP at each time step
+    iv_action_props = action_proportions_at_timesteps(iv_bins)
+    vp_action_props = action_proportions_at_timesteps(vp_bins)
+    return iv_action_props, vp_action_props
+
+
 if __name__ == '__main__':
     encoder = load_pretrained('../results/transformer_v2_experiment_00001/encoder.pt')
     policy = load_pretrained('../results/transformer_v2_experiment_00001/policy.pt')
     dataset = load_csv('../../preprocessing/datasets/mimic-iii/non_aggregated_1h/mimic-iii_valid.csv')
     bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/non_aggregated_1h/action_to_vaso_fluid_bins.pkl')
 
+    # physician
+    iv_action_props, vp_action_props = physician_actions_over_time(dataset, bin_file=bin_file)
+    plot(
+        iv_action_props=iv_action_props,
+        vp_action_props=vp_action_props,
+        iv_labels=['No IV', 'IV1', 'IV2', 'IV3', 'IV4'],
+        vp_labels=['No VP', 'VP1', 'VP2', 'VP3', 'VP4'],
+    )
+
+    # encoder + policy
     iv_action_props, vp_action_props = actions_over_time(
         encoder=encoder,
         policy=policy,

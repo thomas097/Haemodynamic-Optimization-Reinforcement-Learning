@@ -3,6 +3,7 @@ import io
 import pickle
 import torch
 import numpy as np
+from tqdm import tqdm
 
 from experience_replay import EvaluationReplay
 
@@ -29,13 +30,15 @@ def load_pretrained(path, model):
 
 def evaluate_policy_on_dataset(encoder, policy, dataset, _type='qvals'):
     # Load dataset into replay buffer
-    replay = EvaluationReplay(dataset, return_history=encoder is not None)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    replay = EvaluationReplay(dataset, return_history=encoder is not None, device=device, max_len=256)
 
     # Feed histories through encoder to get fixed state representation
-    if encoder is not None:
-        encoded_states = torch.concat([encoder(t).detach() for t in replay.iterate()])
-    else:
-        encoded_states = torch.concat([t for t in replay.iterate()])
+    with torch.no_grad():
+        if encoder is not None:
+            encoded_states = torch.concat([encoder(t).detach() for t in tqdm(replay.iterate(1))])
+        else:
+            encoded_states = torch.concat([t for t in replay.iterate()])
 
     # Return Q-values according to model
     if _type == 'qvals':
@@ -49,5 +52,6 @@ def evaluate_policy_on_dataset(encoder, policy, dataset, _type='qvals'):
 
 
 def run_encoder_over_dataset(encoder, dataset):
-    replay = EvaluationReplay(dataset, return_history=True)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    replay = EvaluationReplay(dataset, return_history=True, device=device, max_len=256)
     return torch.concat([encoder(t).detach() for t in replay.iterate()]).detach().numpy()
