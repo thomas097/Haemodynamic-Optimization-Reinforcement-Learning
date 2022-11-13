@@ -2,28 +2,40 @@ import torch
 import torch.nn.functional as F
 
 
+class LastState(torch.nn.Module):
+    def __init__(self):
+        """ Returns last state in history as in (Roggeveen et al., 2021)
+        """
+        super(LastState, self).__init__()
+        self.config = locals()
+
+    def forward(self, x):
+        return x[:, -1]
+
+
 class StateConcatenation(torch.nn.Module):
-    """
-        Concatenates previous K-1 states to the current state
-        (Mnih et al., 2016)
-    """
-    def __init__(self, k=2):
+    def __init__(self, in_channels, out_channels, k=2):
+        """ Concatenates previous K-1 states (Mnih et al., 2016)
+        """
         super(StateConcatenation, self).__init__()
         self.config = locals()
+        self._linear = torch.nn.Linear(in_channels * k, out_channels)
         self._k = k
 
-    def forward(self, history):
-        # Repeat oldest state K - |history| times if no history < K
-        history_size = history.shape[1]
-        if history_size < self._k:
-            repeated_first_state = history[:, :1].repeat(1, self._k - history_size, 1)
-            history = torch.concat([repeated_first_state, history], dim=1)
+    def _edge_padding(self, x):
+        """ Repeats earliest state in case of insufficient history """
+        x_repeated = x[:, :1].repeat(1, self._k - x.size(1), 1)
+        return torch.concat([x_repeated, x], dim=1)
 
-        # Drop all but last K states
-        history = history[:, -self._k:]
+    def forward(self, x):
+        if x.size(1) < self._k:
+            x = self._edge_padding(x)
 
-        # Reshape histories to (batch_size, K * state_size)
-        return history.reshape(-1, self._k * history.shape[2])
+        # Concatenate all but last K states
+        x = x[:, -self._k:].reshape(-1, self._k * x.shape[2])
+
+        # Reduce to (batch_size, out_channels)
+        return self._linear(x)
 
 
 class CausalConv1d(torch.nn.Module):
@@ -53,7 +65,7 @@ class CausalCNN(torch.nn.Module):
         on dilated causal convolutions (implemented by `CausalConv1d`).
         See https://arxiv.org/pdf/1609.03499v2.pdf for details.
     """
-    def __init__(self, layer_channels=(32, 32), kernel_sizes=(12,), dilations=(1,)):
+    def __init__(self, layer_channels=(32, 64), kernel_sizes=(12,), dilations=(1,)):
         """ Constructor of the CausalConv1D """
         super(CausalCNN, self).__init__()
         self.config = locals()
@@ -72,8 +84,8 @@ class CausalCNN(torch.nn.Module):
             layers.extend([conv, relu])
         self._model = torch.nn.Sequential(*layers)
 
-    def forward(self, history, return_last=True):
-        y = self._model(history.permute(0, 2, 1)).permute(0, 2, 1)  # Note: Conv1D expects (batch_size, in_channels, seq_length)
+    def forward(self, x, return_last=True):  # <- (batch_size, seq_length, in_channels)
+        y = self._model(x.permute(0, 2, 1)).permute(0, 2, 1)
         return y[:, -1] if return_last else y
 
 
