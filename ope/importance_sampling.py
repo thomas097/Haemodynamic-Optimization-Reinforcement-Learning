@@ -17,15 +17,15 @@ class IS:
         df = pd.read_csv(behavior_policy_file)
 
         # test whether all episodes are of the same length
-        timesteps = df.groupby('episode').size().values
-        if np.any(timesteps != timesteps[0]):
-            raise exception('Episodes must be of the same length. Found %s' % np.unique(timesteps))
+        all_timesteps = df.episode.value_counts().values
+        self.timesteps = all_timesteps[0]
+        if np.any(all_timesteps != self.timesteps):
+            raise exception('Episodes must be of the same length. Found %s' % np.unique(all_timesteps))
 
         # behavior policy's actions and action probabilities
         self.actions = np.expand_dims(df['action'], axis=1).astype(int)
         self.pi_b = self._behavior_policy(df)
 
-        self.timesteps = timesteps[0]
         self.rewards = self._to_table(df['reward'].values)
         self.gammas = np.power(gamma, np.arange(self.timesteps))[np.newaxis]
 
@@ -82,22 +82,24 @@ class IS:
 
 
 class WeightedIS(IS):
-    def __init__(self, behavior_policy_file, gamma=1.0, bootstraps=0, conf=0.95, verbose=False):
+    def __init__(self, behavior_policy_file, gamma=1.0, bootstraps=0, conf=0.95):
         """ Implementation of Stepwise Weighted Importance Sampling (WIS) for Off-policy Policy Evaluation (OPE)
         Optionally the method uses a non-parametric bootstrap to obtain a lower/upper confidence bound
         Please refer to https://arxiv.org/pdf/1807.01066.pdf for details
         :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                   behavior policy, chosen actions ('action') and associated rewards ('reward').
         :param gamma:                Discount factor (default: 1.0)
-        :param verbose:              Whether to print information such as effective sample size (ESS) to stdout.
         :param bootstraps:           How many bootstrap sets to use to estimate confidence bounds (default: 0; disabled)
         :param conf:                 Confidence level (CL) of the bootstrap estimate (default: CL 95%)
         """
         super().__init__(behavior_policy_file, gamma=gamma, bootstraps=bootstraps, conf=conf)
-        self.verbose = verbose
+        self._ess = None
 
-    @staticmethod
-    def _effective_sample_size(ratios):
+    @property
+    def effective_sample_size(self):
+        return self._ess
+
+    def _compute_effective_sample_size(self, ratios):
         """ Estimates effective sample size of estimator
         See: http://www.nowozin.net/sebastian/blog/effective-sample-size-in-importance-sampling.html
         :param ratios:  Unnormalized importance ratios
@@ -117,20 +119,20 @@ class WeightedIS(IS):
         weights = ratios / ratios.sum(axis=0, keepdims=True)
         return np.sum(gammas * weights * rewards)
 
-    def __call__(self, pi_e):
+    def __call__(self, pi_e, return_ratios=False):
         """ Computes the WIS estimate of V^πe
         :param pi_e:  Table of action probs acc. to πe with shape (num_states, num_actions)
         :returns:     Estimate of mean V^πe. If bootstraps > 0, a tuple (lower, median, upper) is returned
         """
         # extract action probabilities acc. to πe (πb) w.r.t. chosen actions
-        pi_b = self.pi_b
         action_probs_e = self._to_table(np.take_along_axis(pi_e, self.actions, axis=1))
-        action_probs_b = self._to_table(np.take_along_axis(pi_b, self.actions, axis=1))
+        action_probs_b = self._to_table(np.take_along_axis(self.pi_b, self.actions, axis=1))
 
         # compute cumulative importance ratio
-        ratios = np.cumprod(action_probs_e / action_probs_b, axis=1) ** (1/2)
-        if self.verbose:
-            print('Effective sample size: %.1f' % self._effective_sample_size(ratios))
+        ratios = np.cumprod(action_probs_e / action_probs_b, axis=1)
+
+        # compute ESS for later reference
+        self._ess = self._compute_effective_sample_size(ratios)
 
         # estimate distribution of scores by bootstrapping
         if self._bootstraps > 0:
@@ -151,33 +153,29 @@ class WeightedIS(IS):
 
 if __name__ == '__main__':
     # behavior policy
-    behavior_policy_file = 'physician_policy/roggeveen_4h_with_cv/mimic-iii_valid_behavior_policy.csv'
+    behavior_policy_file = 'physician_policy/aggregated_4h/mimic-iii_test_behavior_policy.csv'
     behavior_df = pd.read_csv(behavior_policy_file)
     behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
 
-    # dr. House policy (mimics the physician if patient survives (i.e. does the right thing), but goes crazy otherwise)
-    from sklearn.preprocessing import label_binarize
-    house_policy = label_binarize(behavior_df.action, classes=np.arange(25))
-    crazy_action = label_binarize([1], classes=np.arange(25))
-    for i, r in enumerate(behavior_df.reward):
-        if r == -15:
-            house_policy[i-17:i + 1] = crazy_action  # crazy_action is impossible (VP but no IV)
-
     # random policy
-    random_policy = np.random.uniform(0, 1, behavior_policy.shape)  # Add noise
+    random_policy = np.random.uniform(0, 1, behavior_policy.shape)  # Noise
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
 
     # zero-drug policy
     zerodrug_policy = np.full(behavior_policy.shape, fill_value=1e-6)
     zerodrug_policy[:, 0] = 1 - (24 * 1e-6)
 
+    # highest IV/VP policy
+    aggressive_policy = np.full(behavior_policy.shape, fill_value=1e-6)
+    aggressive_policy[:, 24] = 1 - (24 * 1e-6)
+
     # estimate confidence intervals over WIS scores using 1000 bootstrap sets
-    wimp_sampling = WeightedIS(behavior_policy_file, bootstraps=1000, verbose=True)
+    wimp_sampling = WeightedIS(behavior_policy_file, bootstraps=1000)
     conf_intervals = np.array([
         wimp_sampling(behavior_policy),
-        wimp_sampling(house_policy),
         wimp_sampling(random_policy),
-        wimp_sampling(zerodrug_policy)
+        wimp_sampling(zerodrug_policy),
+        wimp_sampling(aggressive_policy)
     ])
 
     # Plot confidence bounds as errorplot
@@ -187,16 +185,60 @@ if __name__ == '__main__':
     lower_err = conf_intervals[:, 1] - conf_intervals[:, 0]
     upper_err = conf_intervals[:, 2] - conf_intervals[:, 1]
     plt.errorbar(x=[1, 2, 3, 4], y=conf_intervals[:, 1], yerr=[lower_err, upper_err], fmt='o', color='k')
-    plt.xticks([1, 2, 3, 4], labels=['physician', 'dr. House', 'random', 'zero-drug'])
+    plt.xticks(ticks=[1, 2, 3, 4], labels=['physician', 'random', 'zero-drug', 'aggressive'])
     plt.xlabel('policy')
     plt.ylabel('WIS')
+    plt.ylim(-16, 16)
+    plt.grid(True)
     plt.show()
 
     # Sanity check: estimate true reward
-    rewards = behavior_df['reward'].values.reshape(-1, 18)
+    timesteps = behavior_df.episode.value_counts().max()
+    rewards = behavior_df.reward.values.reshape(-1, timesteps)
     print('\nSupport:', rewards.shape[0])
 
     total_reward = np.mean(np.sum(rewards, axis=1))
     print('Empirical total reward of pi_b:', total_reward)
+
+    # Sanity check: Effective sample size as a function of deviance from physician policy
+    from tqdm import tqdm
+    wimp_sampling = WeightedIS(behavior_policy_file, bootstraps=0)
+
+    dev, wis, ess = [], [], []
+    for p in tqdm(np.linspace(0, 1, 100)):
+        wis_scores = []
+        ess_scores = []
+        for _ in range(75):
+            # assign a random action distribution to `p` percentage of actions of evaluation policy!
+            mask = np.random.random(behavior_policy.shape[0]) < p
+            perm = np.random.permutation(behavior_policy.shape[1])
+            randomized_policy = np.copy(behavior_policy)
+            randomized_policy[mask] = randomized_policy[mask][:, perm] # shuffle action prob columns
+
+            # ensure actions receive non-zero probability
+            randomized_policy = (randomized_policy + 1e-5) / np.sum(randomized_policy + 1e-5, axis=1, keepdims=True)
+
+            # run WIS and get estimate of sample size
+            wis_scores.append(wimp_sampling(randomized_policy))
+            ess_scores.append(wimp_sampling.effective_sample_size)
+
+        dev.append(p)
+        wis.append(np.mean(wis_scores))
+        ess.append(np.mean(ess_scores))
+
+    plt.figure()
+    plt.subplot(121)
+    plt.plot(dev, wis)
+    plt.title('WIS scores')
+    plt.xlabel('% actions deviating from physician')
+    plt.ylabel('WIS score')
+    plt.subplot(122)
+    plt.plot(dev, ess)
+    plt.title('Effective sample size')
+    plt.xlabel('% actions deviating from physician')
+    plt.ylabel('Effective sample size')
+    plt.show()
+
+
     
     
