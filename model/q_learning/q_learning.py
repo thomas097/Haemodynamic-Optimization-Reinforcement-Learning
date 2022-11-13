@@ -108,6 +108,7 @@ def fit_double_dqn(experiment,
                    replay_alpha=0.4,
                    replay_beta=0.6,
                    batch_size=32,
+                   truncate=256, # TODO
                    scheduler_gamma=0.9,
                    step_scheduler_after=10000,
                    freeze_encoder=False,
@@ -204,7 +205,7 @@ def fit_double_dqn(experiment,
         if lambda_reward > 0:
             loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
         if lambda_phys > 0:
-            loss += lambbda_phys * physician_regularizer(q_vals, actions)    # Forces decisions to lie close to those of behavior policy
+            loss += lambda_phys * physician_regularizer(q_vals, actions)    # Forces decisions to lie close to those of behavior policy
         if lambda_consv > 0:
             loss += lambda_consv * conservative_regularizer(q_vals, q_pred)  # Minimizes Q for OOD actions
 
@@ -238,7 +239,7 @@ def fit_double_dqn(experiment,
         if episode % eval_after == 0:
             if eval_func:
                 eval_args = (encoder, policy) if encoder is not None else (policy,)
-                tracker.add(**eval_func(*eval_args))
+                tracker.add(**eval_func(*eval_args, batch_size=batch_size))
 
             tracker.save_metrics()
             print('\nEp %d/%d: %s' % (episode, num_episodes, tracker.print_stats()))
