@@ -15,11 +15,11 @@ class DataLoader:
     """ Implements a simple data loader returning sequences of states (histories)
         and their corresponding actions
     """
-    def __init__(self, dataset, device, maxlen=512):
+    def __init__(self, dataset, device, label_col='action', maxlen=512):
         # Store dataset of states and actions
         dataset = dataset.reset_index(drop=True)
         self._states = dataset.filter(regex='x\d+').values
-        self._actions = dataset.action
+        self._labels = dataset[label_col]
 
         self._indices = self._get_all_state_indices(dataset)
         self._buffer_size = self._indices.shape[0]
@@ -57,11 +57,11 @@ class DataLoader:
         for j in range(0, self._buffer_size, batch_size):
             batch_transitions = self._indices[j:j + batch_size]
 
-            states, actions = [], []
+            states, labels = [], []
             for i in batch_transitions:
                 states.append(self._states[self._start_of_episode[i]: i + 1])
-                actions.append(self._actions[i])
+                labels.append(self._labels[i])
 
             states = self._pad_batch_sequences(states).to(self._device)
-            actions = torch.tensor(actions).long().to(self._device)
-            yield states, actions
+            labels = torch.tensor(labels).long().to(self._device)
+            yield states, labels
