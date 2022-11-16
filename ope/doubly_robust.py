@@ -4,14 +4,14 @@ from sklearn.preprocessing import label_binarize
 
 from importance_sampling import WIS
 from fitted_q_evaluation import FittedQEvaluation
+from fitted_q_iteration import FittedQIteration
 
 
 class WeightedDoublyRobust:
-    def __init__(self, behavior_policy_file, mdp_training_file, gamma=1.0, lrate=1e-2, iters=2000, method='fqe',
-                 reward_bounds=(-15, 15)):
-        """ Implementation of the Weighted Doubly Robust (WDR) estimator for OPE. We use a Weighted
-        Importance Sampling estimator for the IS part, and we use a Fitted Q-Evaluation (FQE) estimator
-        for the DM part. Please see https://arxiv.org/pdf/1802.03493.pdf for more details
+    def __init__(self, behavior_policy_file, mdp_training_file, gamma=1.0, lrate=1e-2, iters=4000, method='fqe', reward_bounds=(-15, 15)):
+        """ Implementation of the Weighted Doubly Robust (WDR) estimator for OPE.
+        We use a Weighted Importance Sampling (WIS) estimator for the IS part and a Fitted Q-Evaluation (FQE)
+        or Iteration (FQI) estimator for the DM part. For details, see https://arxiv.org/pdf/1911.06854.pdf
         :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                      behavior policy, chosen actions ('action') and associated rewards ('reward')
         :param mdp_training_file:    Path to DataFrame containing states, actions and rewards of training set
@@ -55,8 +55,8 @@ class WeightedDoublyRobust:
 
         # note: we adopt the COBS fix for t-1, i.e. rho = 1 / n_episodes,
         # see: https://arxiv.org/pdf/1911.06854.pdf
-        rho_t_minus_one = np.ones((self._n_episodes, 1)) / self._n_episodes
-        rho_prev = np.column_stack([rho_t_minus_one, rho[:, :-1]])
+        rho_minus_one = np.ones((self._n_episodes, 1)) / self._n_episodes
+        rho_prev = np.column_stack([rho_minus_one, rho[:, :-1]])
 
         # compute control covariates (limit q to actions by physician)
         v = self._estimator.state_value(pi_e).reshape(-1, self._n_timesteps)
@@ -72,12 +72,11 @@ class WeightedDoublyRobust:
 
 
 
-
 if __name__ == '__main__':
-    behavior_policy_file = 'physician_policy/aggregated_4h/mimic-iii_valid_behavior_policy.csv'
-    mdp_training_file = '../preprocessing/datasets/mimic-iii/aggregated_4h/mimic-iii_valid.csv'
+    behavior_policy_file = 'physician_policy/aggregated_1h/mimic-iii_valid_behavior_policy.csv'
+    mdp_training_file = '../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_valid.csv'
 
-    # Policies
+    # Toy policies to evaluate
     behavior_policy = pd.read_csv(behavior_policy_file).filter(regex='\d+').values
 
     random_policy = np.random.uniform(0, 1, behavior_policy.shape)
@@ -86,15 +85,22 @@ if __name__ == '__main__':
     zerodrug_policy = np.full(shape=behavior_policy.shape, fill_value=1e-6)
     zerodrug_policy[:, 0] = 1 - (1e-6 * behavior_policy.shape[1])
 
-    # Fit FQE-WDR estimators
-    wdr_behavior = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(behavior_policy)
-    wdr_random = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(random_policy)
-    wdr_zerodrug = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(zerodrug_policy)
+    aggressive_policy = np.full(shape=behavior_policy.shape, fill_value=1e-6)
+    aggressive_policy[:, 24] = 1 - (1e-6 * aggressive_policy.shape[1])
 
-    print('WDR-FQE:')
-    print('behavior: ', wdr_behavior(behavior_policy))
-    print('random:   ', wdr_random(random_policy))
-    print('zero drug:', wdr_zerodrug(zerodrug_policy))
+    # Fit FQE-WDR estimators
+    print('WDR (FQE)')
+    wdr_behavior = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(behavior_policy)
+    print('behavior:  ', wdr_behavior(behavior_policy))
+
+    wdr_random = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(random_policy)
+    print('random:    ', wdr_random(random_policy))
+
+    wdr_zerodrug = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(zerodrug_policy)
+    print('zero drug: ', wdr_zerodrug(zerodrug_policy))
+
+    wdr_aggressive = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(aggressive_policy)
+    print('aggressive:', wdr_aggressive(aggressive_policy))
 
     # # Fit FQI-WDR estimators
     # wdr_behavior = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqi').fit(train_behavior_policy)

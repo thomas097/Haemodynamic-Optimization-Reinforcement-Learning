@@ -111,7 +111,7 @@ class FittedQEvaluation:
         collected under the behavior policy
         :param policy_action_probs:  Tensor of action probabilities for each state
         """
-        # Limit policy's action probabilities to pi(*|s')
+        # limit policy's action probabilities to pi(*|s')
         policy_next_action_probs = np.delete(policy_action_probs, self._train.first_state_idx, axis=0)
         policy_next_action_probs = torch.Tensor(policy_next_action_probs)
 
@@ -126,12 +126,12 @@ class FittedQEvaluation:
                 # Q-estimate
                 q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
 
-                # Bootstrapped target using policy πe!
+                # bootstrapped target using policy πe!
                 with torch.no_grad():
                     exp_future_reward = self._estimator(self._train.next_states, action_probs=policy_next_action_probs)
                     q_next = self._train.rewards + self._gamma * reward_mask * exp_future_reward
 
-                # Update!
+                # update!
                 self._optimizer.zero_grad()
                 self._criterion(q_pred, q_next).backward()
                 self._optimizer.step()
