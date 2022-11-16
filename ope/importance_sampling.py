@@ -4,10 +4,9 @@ import pandas as pd
 
 class IS:
     def __init__(self, behavior_policy_file, gamma=1.0, bootstraps=0, conf=0.95):
-        """ Implementation of Stepwise Importance Sampling (IS) for Off-policy Policy Evaluation (OPE)
-        Optionally the method uses a non-parametric bootstrap to obtain a lower/upper confidence bound
+        """ Implementation of Stepwise Importance Sampling (IS) for Off-policy Policy Evaluation (OPE).
+        Optionally the method uses a non-parametric bootstrap to obtain a confidence bound on the estimate.
         Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
-
         :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                      behavior policy, chosen actions ('action') and associated rewards ('reward').
         :param gamma:                Discount factor (default: 1.0)
@@ -16,7 +15,9 @@ class IS:
         """
         behavior_df = pd.read_csv(behavior_policy_file)
 
-        self._n_timesteps, self._n_episodes = self._infer_horizon(behavior_df)
+        self._n_timesteps = self._length_of_trajectories(behavior_df)
+        self._n_episodes = len(behavior_df.episode.unique())
+
         self._pi_b = self._get_behavior_policy(behavior_df)
         self._actions = behavior_df.action.values[:, np.newaxis].astype(int)
         self._rewards = behavior_df.reward.values.reshape(-1, self._n_timesteps)
@@ -30,7 +31,7 @@ class IS:
         self._conf = conf
 
     @staticmethod
-    def _infer_horizon(behavior_df):
+    def _length_of_trajectories(behavior_df):
         """ Infers episode length, or horizon, from behavior policy file
         :param behavior_df:  pandas DataFrame of behavior policy file
         :return:             Number of timesteps in episodes
@@ -38,10 +39,7 @@ class IS:
         timesteps = behavior_df.episode.value_counts().values
         if np.any(timesteps != timesteps[0]):
             raise Exception('variable horizon episodes found')
-
-        n_episodes = len(timesteps)
-        n_timesteps = timesteps[0]
-        return n_timesteps, n_episodes
+        return timesteps[0]
 
     @staticmethod
     def _get_behavior_policy(behavior_df):
@@ -69,7 +67,7 @@ class IS:
             estimates = []
             for _ in range(self._bootstraps):
                 # sample with replacement a bootstrap set of size |episodes|
-                i = np.random.choice(np.arange(self._n_episodes), size=self._n_episodes, replace=True)
+                i = np.random.choice(self._n_episodes, size=self._n_episodes, replace=True)
                 v_pi = np.mean(np.sum(self._gammas * self.ratios[i] * self._rewards[i], axis=1))
                 estimates.append(v_pi)
 
@@ -82,10 +80,10 @@ class IS:
         return np.sum(self._gammas * self.ratios * self._rewards, axis=1)
 
 
-class WeightedIS(IS):
+class WIS(IS):
     def __init__(self, behavior_policy_file, gamma=1.0, bootstraps=0, conf=0.95):
         """ Implementation of Stepwise Weighted Importance Sampling (WIS) for Off-policy Policy Evaluation (OPE)
-        Optionally the method uses a non-parametric bootstrap to obtain a lower/upper confidence bound
+        Optionally the method uses a non-parametric bootstrap to obtain a confidence interval over the estimate
         Please refer to https://arxiv.org/pdf/1807.01066.pdf for details
         :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                      behavior policy, chosen actions ('action') and associated rewards ('reward').
@@ -125,9 +123,9 @@ class WeightedIS(IS):
         # bootstrapping
         if self._bootstraps > 0:
             estimates = []
-            # estimate v_pi over N bootstrap sets of size |episodes|
+            # estimate v_pi over N bootstrap sets
             for _ in range(self._bootstraps):
-                i = np.random.choice(np.arange(self._n_episodes), size=self._n_episodes, replace=True)
+                i = np.random.choice(self._n_episodes, size=self._n_episodes, replace=True)
                 norm_ratios = ratios[i] / ratios[i].sum(axis=0, keepdims=True)
                 v_pi = np.sum(self._gammas * norm_ratios * self._rewards[i])
                 estimates.append(v_pi)
