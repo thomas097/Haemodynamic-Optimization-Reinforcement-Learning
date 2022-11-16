@@ -14,71 +14,72 @@ class IS:
         :param bootstraps:           How many bootstrap sets to use to estimate confidence bounds (default: 0; disabled)
         :param conf:                 Confidence level (CL) of the bootstrap estimate (default: CL 95%)
         """
-        df = pd.read_csv(behavior_policy_file)
+        behavior_df = pd.read_csv(behavior_policy_file)
 
-        # test whether all episodes are of the same length
-        all_timesteps = df.episode.value_counts().values
-        self.timesteps = all_timesteps[0]
-        if np.any(all_timesteps != self.timesteps):
-            raise exception('Episodes must be of the same length. Found %s' % np.unique(all_timesteps))
+        self._n_timesteps, self._n_episodes = self._infer_horizon(behavior_df)
+        self._pi_b = self._get_behavior_policy(behavior_df)
+        self._actions = behavior_df.action.values[:, np.newaxis].astype(int)
+        self._rewards = behavior_df.reward.values.reshape(-1, self._n_timesteps)
 
-        # behavior policy's actions and action probabilities
-        self.actions = np.expand_dims(df['action'], axis=1).astype(int)
-        self.pi_b = self._behavior_policy(df)
+        # precompute discounting factor
+        self._gammas = np.power(gamma, np.arange(self._n_timesteps))[np.newaxis]
+        self.ratios = None
 
-        self.rewards = self._to_table(df['reward'].values)
-        self.gammas = np.power(gamma, np.arange(self.timesteps))[np.newaxis]
-
-        # bootstrapping
+        # bootstrapping parameters
         self._bootstraps = bootstraps
         self._conf = conf
 
     @staticmethod
-    def _behavior_policy(df):
-        # Return numeric columns assumed to belong to actions, i.e., '0'-'24'
-        return df.filter(regex='\d+').values.astype(np.float64)
+    def _infer_horizon(behavior_df):
+        """ Infers episode length, or horizon, from behavior policy file
+        :param behavior_df:  pandas DataFrame of behavior policy file
+        :return:             Number of timesteps in episodes
+        """
+        timesteps = behavior_df.episode.value_counts().values
+        if np.any(timesteps != timesteps[0]):
+            raise Exception('variable horizon episodes found')
 
-    def _to_table(self, arr):
-        return arr.reshape(-1, self.timesteps)
+        n_episodes = len(timesteps)
+        n_timesteps = timesteps[0]
+        return n_timesteps, n_episodes
 
     @staticmethod
-    def _estimate(gammas, weights, rewards):
-        """ Computes IS estimate given weights and discounted rewards
-        :param gammas:  ndarray of discount factors of shape (episodes, timesteps)
-        :param weights: ndarray of importance weights of shape (episodes, timesteps)
-        :param rewards: ndarray of rewards of shape (episodes, timesteps)
-        :returns:       IS estimate of V^πe
+    def _get_behavior_policy(behavior_df):
+        """  Infers columns corresponding to the action probabilities at each state
+        :param df:  see documentation for `_horizon`
         """
-        return np.mean(np.sum(gammas * weights * rewards, axis=1))
+        # Return numeric columns assumed to belong to actions, i.e., '0'-'24'
+        return behavior_df.filter(regex='\d+').values.astype(np.float64)
 
     def __call__(self, pi_e):
         """ Computes the IS estimate of V^πe
         :param pi_e:  Table of action probs acc. to πe with shape (num_states, num_actions)
         :returns:     Estimate of mean V^πe. If bootstraps > 0, a tuple (lower, median, upper) is returned
         """
-        # Extract table of action probabilities acc. to πe (πb) w.r.t. chosen actions
-        pi_b = self.pi_b
-        action_probs_e = self._to_table(np.take_along_axis(pi_e, self.actions, axis=1))
-        action_probs_b = self._to_table(np.take_along_axis(pi_b, self.actions, axis=1))
+        # extract table of action probabilities acc. to πe (πb) w.r.t. chosen actions
+        pi_b = self._pi_b
+        action_probs_e = np.take_along_axis(pi_e, self._actions, axis=1).reshape(-1, self._n_timesteps)
+        action_probs_b = np.take_along_axis(pi_b, self._actions, axis=1).reshape(-1, self._n_timesteps)
 
-        # Compute cumulative importance ratio
-        weights = np.cumprod(action_probs_e / action_probs_b, axis=1)
+        # compute cumulative importance ratio
+        self.ratios = np.cumprod(action_probs_e / action_probs_b, axis=1)
 
-        # estimate distribution of scores by bootstrapping
+        # if bootstraps enabled, estimate distribution of scores by bootstrapping
         if self._bootstraps > 0:
             estimates = []
             for _ in range(self._bootstraps):
                 # sample with replacement a bootstrap set of size |episodes|
-                i = np.random.choice(np.arange(weights.shape[0]), size=weights.shape[0], replace=True)
-                estimates.append(self._estimate(self.gammas, weights[i], self.rewards[i]))
+                i = np.random.choice(np.arange(self._n_episodes), size=self._n_episodes, replace=True)
+                v_pi = np.mean(np.sum(self._gammas * self.ratios[i] * self._rewards[i], axis=1))
+                estimates.append(v_pi)
 
             median = np.median(estimates)
             lower = np.quantile(estimates, q=(1 - self._conf) / 2)
             upper = np.quantile(estimates, q=(1 + self._conf) / 2)
             return lower, median, upper
 
-        # returns estimate over the complete test set
-        return self._estimate(self.gammas, weights, self.rewards)
+        # else; estimate over the complete test set
+        return np.sum(self._gammas * self.ratios * self._rewards, axis=1)
 
 
 class WeightedIS(IS):
@@ -87,17 +88,13 @@ class WeightedIS(IS):
         Optionally the method uses a non-parametric bootstrap to obtain a lower/upper confidence bound
         Please refer to https://arxiv.org/pdf/1807.01066.pdf for details
         :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
-                                  behavior policy, chosen actions ('action') and associated rewards ('reward').
+                                     behavior policy, chosen actions ('action') and associated rewards ('reward').
         :param gamma:                Discount factor (default: 1.0)
         :param bootstraps:           How many bootstrap sets to use to estimate confidence bounds (default: 0; disabled)
         :param conf:                 Confidence level (CL) of the bootstrap estimate (default: CL 95%)
         """
         super().__init__(behavior_policy_file, gamma=gamma, bootstraps=bootstraps, conf=conf)
-        self._ess = None
-
-    @property
-    def effective_sample_size(self):
-        return self._ess
+        self.ess = None
 
     def _compute_effective_sample_size(self, ratios):
         """ Estimates effective sample size of estimator
@@ -108,47 +105,42 @@ class WeightedIS(IS):
         weights = ratios / ratios.sum(axis=0, keepdims=True)
         return 1 / np.sum(weights[:, -1] ** 2)
 
-    @staticmethod
-    def _estimate(gammas, ratios, rewards):
-        """ Computes WIS estimate given weights and discounted rewards
-        :param gammas:  ndarray of discount factors of shape (episodes, timesteps)
-        :param ratios: ndarray of non-normalized importance ratios of shape (episodes, timesteps)
-        :param rewards: ndarray of rewards of shape (episodes, timesteps)
-        :returns:       IS estimate of V^πe
-        """
-        weights = ratios / ratios.sum(axis=0, keepdims=True)
-        return np.sum(gammas * weights * rewards)
-
-    def __call__(self, pi_e, return_ratios=False):
+    def __call__(self, pi_e):
         """ Computes the WIS estimate of V^πe
         :param pi_e:  Table of action probs acc. to πe with shape (num_states, num_actions)
         :returns:     Estimate of mean V^πe. If bootstraps > 0, a tuple (lower, median, upper) is returned
         """
         # extract action probabilities acc. to πe (πb) w.r.t. chosen actions
-        action_probs_e = self._to_table(np.take_along_axis(pi_e, self.actions, axis=1))
-        action_probs_b = self._to_table(np.take_along_axis(self.pi_b, self.actions, axis=1))
+        pi_b = self._pi_b
+        action_probs_e = np.take_along_axis(pi_e, self._actions, axis=1).reshape(-1, self._n_timesteps)
+        action_probs_b = np.take_along_axis(pi_b, self._actions, axis=1).reshape(-1, self._n_timesteps)
 
         # compute cumulative importance ratio
         ratios = np.cumprod(action_probs_e / action_probs_b, axis=1)
+        self.ratios = ratios
 
         # compute ESS for later reference
-        self._ess = self._compute_effective_sample_size(ratios)
+        self.ess = self._compute_effective_sample_size(ratios)
 
-        # estimate distribution of scores by bootstrapping
+        # bootstrapping
         if self._bootstraps > 0:
             estimates = []
+            # estimate v_pi over N bootstrap sets of size |episodes|
             for _ in range(self._bootstraps):
-                # sample with replacement a bootstrap set of size |episodes|
-                i = np.random.choice(np.arange(ratios.shape[0]), size=ratios.shape[0], replace=True)
-                estimates.append(self._estimate(self.gammas, ratios[i], self.rewards[i]))
+                i = np.random.choice(np.arange(self._n_episodes), size=self._n_episodes, replace=True)
+                norm_ratios = ratios[i] / ratios[i].sum(axis=0, keepdims=True)
+                v_pi = np.sum(self._gammas * norm_ratios * self._rewards[i])
+                estimates.append(v_pi)
 
+            # estimate e.g. CL-confidence interval
             median = np.median(estimates)
             lower = np.quantile(estimates, q=(1 - self._conf) / 2)
             upper = np.quantile(estimates, q=(1 + self._conf) / 2)
             return lower, median, upper
 
-        # returns estimate over the complete test set
-        return self._estimate(self.gammas, ratios, self.rewards)
+        # else; returns estimate over the complete test set
+        norm_ratios = self.ratios / self.ratios.sum(axis=0, keepdims=True)
+        return np.sum(self._gammas * norm_ratios * self._rewards)
 
 
 if __name__ == '__main__':
@@ -188,7 +180,7 @@ if __name__ == '__main__':
     plt.xticks(ticks=[1, 2, 3, 4], labels=['physician', 'random', 'zero-drug', 'aggressive'])
     plt.xlabel('policy')
     plt.ylabel('WIS')
-    plt.ylim(-16, 16)
+    plt.ylim(-18, 18)
     plt.grid(True)
     plt.show()
 
@@ -208,7 +200,7 @@ if __name__ == '__main__':
     for p in tqdm(np.linspace(0, 1, 100)):
         wis_scores = []
         ess_scores = []
-        for _ in range(75):
+        for _ in range(250):
             # assign a random action distribution to `p` percentage of actions of evaluation policy!
             mask = np.random.random(behavior_policy.shape[0]) < p
             perm = np.random.permutation(behavior_policy.shape[1])
@@ -220,7 +212,7 @@ if __name__ == '__main__':
 
             # run WIS and get estimate of sample size
             wis_scores.append(wimp_sampling(randomized_policy))
-            ess_scores.append(wimp_sampling.effective_sample_size)
+            ess_scores.append(wimp_sampling.ess)
 
         dev.append(p)
         wis.append(np.mean(wis_scores))
@@ -229,6 +221,7 @@ if __name__ == '__main__':
     plt.figure()
     plt.subplot(121)
     plt.plot(dev, wis)
+    plt.ylim(-15, 15)
     plt.title('WIS scores')
     plt.xlabel('% actions deviating from physician')
     plt.ylabel('WIS score')
