@@ -75,7 +75,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
 
 
 class RelativePositionalEncoding(torch.nn.Module):
-    def __init__(self, hidden_units=5):
+    def __init__(self, hidden_units=16):
         super(RelativePositionalEncoding, self).__init__()
         self._pos_encoder = torch.nn.Sequential(
             torch.nn.Conv2d(1, hidden_units, kernel_size=(1, 1), bias=True),
@@ -115,7 +115,7 @@ class SelfAttention(torch.nn.Module):
         :return:   Normalized attention matrix
         """
         z = torch.exp(x)
-        return z / (torch.sum(z, dim=2, keepdim=True) + 1)
+        return z / (torch.sum(z, dim=2, keepdim=True) + 1e-5)
 
     def forward(self, x, src_mask, rel_dists):
         """ Forward pass through Self-Attention layer

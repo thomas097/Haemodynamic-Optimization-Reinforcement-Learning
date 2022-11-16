@@ -81,15 +81,15 @@ class Transformer(torch.nn.Module):
         is_padding = torch.all(x == self._padding_value, dim=2, keepdim=True)
         return torch.transpose(is_padding, 1, 2)
 
-    def _encode_input(self, x_type, x_val):
+    def _encode_input(self, f, v):
         """ Encodes sequence of (measurement_type, value) pairs into a latent vector
-        :param x_type:  Tensor of shape (batch_size, num_timesteps, 1) containing integer measurement types
-        :param x_val:   Tensor of shape (batch_size, num_timesteps, 1) containing real measurement values
-        :return:        Tensor of shape (batch_size, num_timesteps, d_model)
+        :param f:  Tensor of shape (batch_size, num_timesteps, 1) containing integer measurement types
+        :param v:  Tensor of shape (batch_size, num_timesteps, 1) containing real measurement values
+        :return:   Tensor of shape (batch_size, num_timesteps, d_model)
         """
         # One-hot encode x_type (i.e. measurement types) and jointly model with x_val
-        x_type = F.one_hot(x_type[:, :, 0].long(), num_classes=self._vocab_size)
-        z = torch.concat([x_type, x_val], dim=2)
+        f = F.one_hot(f[:, :, 0].long(), num_classes=self._vocab_size)
+        z = torch.concat([f, v], dim=2)
         return self._input_encoding(z)
 
     def forward(self, x, return_last=True):
