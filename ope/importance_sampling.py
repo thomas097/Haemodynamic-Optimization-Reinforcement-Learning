@@ -160,7 +160,7 @@ if __name__ == '__main__':
     aggressive_policy[:, 24] = 1 - (24 * 1e-6)
 
     # estimate confidence intervals over WIS scores using 1000 bootstrap sets
-    wimp_sampling = WeightedIS(behavior_policy_file, bootstraps=1000)
+    wimp_sampling = WIS(behavior_policy_file, bootstraps=1000)
     conf_intervals = np.array([
         wimp_sampling(behavior_policy),
         wimp_sampling(random_policy),
@@ -192,7 +192,7 @@ if __name__ == '__main__':
 
     # Sanity check: Effective sample size as a function of deviance from physician policy
     from tqdm import tqdm
-    wimp_sampling = WeightedIS(behavior_policy_file, bootstraps=0)
+    wimp_sampling = WIS(behavior_policy_file, bootstraps=0)
 
     dev, wis, ess = [], [], []
     for p in tqdm(np.linspace(0, 1, 100)):
