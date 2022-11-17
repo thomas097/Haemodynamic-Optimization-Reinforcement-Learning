@@ -4,38 +4,73 @@ from ckconv_layers import CKBlock
 
 
 class CKCNN(torch.nn.Module):
-    def __init__(self, layer_channels=(64, 128), kernel_dims=32, max_timesteps=128):
+    def __init__(self, layer_channels, d_kernel, max_timesteps, static_channels=(), use_residual=False):
+        """ CKConv block with layer normalization and optional residual connections (Bai et al., 2017)
+        :param layer_channels:   Tuples specifying number of channels at each layer starting at the input layer,
+                                 e.g. (8, 16, 4) creates a two-layer network mapping from 8 inputs to 4 outputs
+                                 via a hidden layer of 16 channels
+        :param d_kernel:         Dimensions of the hidden layers of the kernel network
+        :param max_timesteps:    Maximum number of timesteps in input
+        :param static_channels:  Which input channels are static and thus do not benefit from convolution
+        :param use_residual:     Whether to include a residual connection inside CKConv blocks (default: False)
+        """
         super(CKCNN, self).__init__()
         self.config = locals()
+        self._static_channels = static_channels
+        self._ckconv_channels = [i for i in range(layer_channels[0]) if i not in static_channels]
 
+        # static feature encoder + linear layer to fuse conv and static
+        self._static_layer = torch.nn.Sequential(
+            torch.nn.Linear(len(static_channels), layer_channels[-1]),
+            torch.nn.LeakyReLU(),
+        )
+        self._fusion_layer = torch.nn.Linear(layer_channels[-1] * 2, layer_channels[-1])
+
+        # subtract static features from number of convolution inputs
+        layer_channels = (layer_channels[0] - len(static_channels),) + layer_channels[1:]
+
+        # CK convolution blocks
         self._blocks = []
         for i in range(len(layer_channels) - 1):
-            self._blocks.append(CKBlock(layer_channels[i], layer_channels[i + 1], kernel_dims, max_timesteps))
-        self._model = torch.nn.Sequential(*self._blocks)
-
-        # Use GPU when available
-        self._device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.to(self._device)
+            block = CKBlock(
+                in_channels=layer_channels[i],
+                out_channels=layer_channels[i + 1],
+                d_kernel=d_kernel,
+                max_timesteps=max_timesteps,
+                use_residual=use_residual)
+            self._blocks.append(block)
+        self._conv_layers = torch.nn.Sequential(*self._blocks)
 
     @property
     def kernels(self):
         return [block.ckconv.kernel for block in self._blocks]
 
-    def _proper_padding(self, x):
-        mask = torch.all(x == 0, dim=2, keepdim=True)
-        padding = self._padding.repeat(x.shape[0], x.shape[1], 1)
-        return mask * padding + (~mask) * x
+    def forward(self, x, return_last=True):
+        """ Forward pass through CKCNN
+        :param x:            Input tensor of shape (batch_size, n_timesteps, in_channels)
+        :param return_last:  Whether to return only the representation at the final time step
+        :returns:            Output tensor of shape (batch_size, n_timesteps, out_channels)
+                             if `return_last=False`, else (batch_size, out_channels)
+        """
+        x_ckconv = x[:, :, self._ckconv_channels].permute(0, 2, 1)
+        x_static = x[:, :, self._static_channels]
 
-    def forward(self, x):  # <- (batch_size, seq_length, in_channels)
-        inputs = x.permute(0, 2, 1)
-        y = self._model(inputs)
-        return y.permute(0, 2, 1)
+        y1 = self._conv_layers(x_ckconv).permute(0, 2, 1)
+        y2 = self._static_layer(x_static)
+
+        y = self._fusion_layer(torch.concat([y1, y2], dim=2))
+        return y[:, -1] if return_last else y
 
 
 if __name__ == '__main__':
-    X = torch.randn(64, 10, 32)
+    X = torch.randn(64, 100, 32)
 
-    model = CKCNN(layer_channels=(32, 64))
+    model = CKCNN(
+        layer_channels=(32, 16, 64),
+        d_kernel=8,
+        max_timesteps=100,
+        static_inputs=[1, 2, 3, 4, 5]
+    )
 
     # Sanity check: time forward pass
     def timing_test(model, x, N=10):
