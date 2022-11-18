@@ -19,6 +19,9 @@ class Transformer(torch.nn.Module):
         self._padding_value = padding_value
         self._causal = causal
 
+        # Learn maxlen parameter over training
+        self.register_buffer('_maxlen', torch.tensor(1), persistent=True)
+
         # Input encoding network
         self._input_encoding = torch.nn.Linear(in_channels, d_model)
 
@@ -36,14 +39,22 @@ class Transformer(torch.nn.Module):
                 torch.nn.init.xavier_uniform_(p)
 
     @staticmethod
-    def _causal_mask(x):
-        tri = torch.triu(torch.ones((1, x.size(1), x.size(1))), diagonal=1).bool()
-        return tri.to(x.device).detach()
+    def _causal_mask(n_timesteps):
+        """ Computes an upper-triangular matrix to mask out future positions
+        :param n_timesteps:  Number of time steps in sequence
+        :returns:            FloatTensor of shape (batch_size, 1, num_timesteps, num_timesteps)
+        """
+        tri = torch.triu(torch.ones((1, n_timesteps, n_timesteps)), diagonal=1).bool()
+        return tri.detach()
 
-    @staticmethod
-    def _distance_matrix(x):
-        t = torch.arange(x.size(1)).unsqueeze(0).unsqueeze(2).float()
-        return torch.cdist(t, t).unsqueeze(0).to(x.device).detach()
+    def _distance_matrix(self, n_timesteps):
+        """ Computes a matrix of signed distances between observations
+        for learning relative positional encoding (RPE)
+        :param n_timesteps:  Number of time steps in sequence
+        :returns:            FloatTensor of shape (batch_size, 1, num_timesteps, num_timesteps)
+        """
+        t = torch.arange(n_timesteps).unsqueeze(0).unsqueeze(2).float() / self._maxlen
+        return (t.permute(0, 2, 1) - t).unsqueeze(1).detach()
 
     def _padding_mask(self, x):
         """ Constructs padding mask from all zero entries in x
@@ -60,16 +71,26 @@ class Transformer(torch.nn.Module):
         :return:             Tensor of shape (batch_size, num_timesteps, out_channels)
                              or (batch_size, out_channels) when `return_last=True`
         """
+        if self.training:
+            self._maxlen = torch.maximum(self._maxlen, torch.tensor(x.size(1)))
+
         # Create combined causal/padding mask
         src_mask = self._padding_mask(x)
         if self._causal:
-            src_mask = torch.logical_or(src_mask, self._causal_mask(x)).detach()
+            src_mask = torch.logical_or(src_mask, self._causal_mask(x.size(1))).to(x.device)
 
         # Compute RPE distances
-        rel_dist = self._distance_matrix(x)
+        rel_dist = self._distance_matrix(x.size(1)).to(x.device)
 
         y = self._input_encoding(x)
         for layer in self._encoder_layers:
             y = layer(y, src_mask=src_mask, rel_dists=rel_dist)
 
         return self._linear(y[:, -1] if return_last else y)
+
+
+if __name__ == '__main__':
+    x = torch.randn(8, 72, 48)
+
+    model = Transformer(in_channels=48, out_channels=32)
+    print('out:',  model(x).shape)

@@ -80,7 +80,7 @@ class RelativePositionalEncoding(torch.nn.Module):
         self._pos_encoder = torch.nn.Sequential(
             torch.nn.Conv2d(1, hidden_units, kernel_size=(1, 1), bias=True),
             torch.nn.LeakyReLU(),
-            torch.nn.Conv2d(hidden_units, 1, kernel_size=(1, 1), bias=True)
+            torch.nn.Conv2d(hidden_units, 1, kernel_size=(1, 1), bias=True),
         )
 
     def forward(self, attn_mat):
@@ -119,20 +119,21 @@ class SelfAttention(torch.nn.Module):
 
     def forward(self, x, src_mask, rel_dists):
         """ Forward pass through Self-Attention layer
-        :param x:           Tensor of shape (batch_size, num_timesteps, d_model)
-        :param src_mask:    Attention mask of shape (batch_size, num_timesteps, num_timesteps)
-        :param rel_dists:   Distance tensor of shape (batch_size, num_timesteps, num_timesteps)
-        :return:            Tensor of shape (batch_size, num_timesteps, d_model)
+        :param x:           Tensor of shape (batch_size, n_timesteps, d_model)
+        :param src_mask:    Attention mask of shape (batch_size, n_timesteps, n_timesteps)
+        :param rel_dists:   Distance tensor of shape (batch_size, n_timesteps, n_timesteps)
+        :return:            Tensor of shape (batch_size, n_timesteps, d_model)
         """
         q = F.normalize(self._Q(x), p=2.0, dim=2)
         k = F.normalize(self._K(x), p=2.0, dim=2)
+        v = self._V(x)
         attn_logits = torch.matmul(q, torch.transpose(k, 1, 2))
 
-        # Relative positional encoding
+        # Relative per-channel positional encoding
         attn_logits = attn_logits - self._pos_encoding(rel_dists)
 
         # `src_mask` can be used to mask out future positions and padding
         if src_mask is not None:
-            attn_logits = attn_logits.masked_fill(mask=src_mask, value=-9e15)
+            attn_logits = attn_logits.masked_fill(mask=src_mask, value=-1e15)
 
-        return torch.bmm(self._softmax(attn_logits), self._V(x))
+        return torch.bmm(self._softmax(attn_logits), v)
