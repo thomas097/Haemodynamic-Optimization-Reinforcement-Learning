@@ -36,3 +36,18 @@ urineoutput_cohort.csv
 - icustay_id
 - charttime
 - value
+
+fio2_cohort.csv
+- icustay_id
+- charttime
+- fio2
+
+demographics_cohort.csv
+- icustay_id
+- age
+- is_male
+- height
+- weight
+- vent
+- sofa (on admission)
+- sirs (on admission)
