@@ -7,6 +7,8 @@ cohort.csv
 
 vassopressors_mv_cohort.csv
 - icustay_id
+- starttime
+- endtime
 - mcgkgmin
 
 inputevents_mv_cohort.csv
