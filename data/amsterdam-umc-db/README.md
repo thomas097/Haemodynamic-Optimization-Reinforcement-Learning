@@ -3,7 +3,7 @@ cohort.csv
 - icustay_id
 - window_start
 - window_end
-- hospital_expire_flag (0 = survived; 1 = deceased)
+- hospital_expire_flag (0 = discharged; 1 = deceased in-hospital)
 
 vassopressors_mv_cohort.csv
 - icustay_id
