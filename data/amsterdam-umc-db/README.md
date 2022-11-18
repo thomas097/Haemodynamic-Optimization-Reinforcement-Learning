@@ -18,7 +18,7 @@ inputevents_mv_cohort.csv
 - endtime
 - amount
 - amountuom
-- ordercategoryname (always 'IV fluid' to prevent conflict with MIMIC-III)
+- ordercategoryname (e.g. 'infuus - Crystalloid')
 
 vitals_cohort.csv
 - icustay_id
