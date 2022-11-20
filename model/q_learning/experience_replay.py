@@ -71,53 +71,47 @@ class EvaluationReplay:
 
 
 class PrioritizedReplay:
-    """ Implements Prioritized Experience Replay (PER) (Schaul et al., 2016)
-        for off-policy RL training from log-data.
-        See https://arxiv.org/pdf/1511.05952v3.pdf for details.
-    """
-    def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, max_len=512, seed=42, return_history=False):
-        # Set random seed
+    def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, max_len=512, seed=42):
+        """ Implements Prioritized Experience Replay (PER) (Schaul et al., 2016)
+            for off-policy RL training from log-data.
+            See https://arxiv.org/pdf/1511.05952v3.pdf for details.
+        """
         self._seed = seed
         np.random.seed(seed)
 
-        # Create single DataFrame with episode and timestep information
+        # extract states, action and rewards from dataset
         self._dataset = dataset.reset_index(drop=True)
-        self._dataset.timestep = pd.to_datetime(self._dataset.timestep)
-
-        states = self._dataset.filter(regex='x\d+').values  # state space is marked by 'x*'
+        states = self._dataset.filter(regex='x\d+').values  # state space features are marked by 'x*'
         actions = self._dataset.action.values
         rewards = self._dataset.reward.values
 
-        # Move states, action and rewards to GPU if available
+        # convert to PyTorch tensors
         self._states = torch.tensor(states, dtype=torch.float32)
         self._actions = torch.LongTensor(actions).unsqueeze(1)
         self._rewards = torch.LongTensor(rewards).unsqueeze(1)
 
-        # Determine indices of non-terminal states in dataset
-        self._indices = self._get_non_terminal_state_indices(self._dataset)
+        # build index of states and their histories to speed up replay
+        self._indices, self._history_indices = self._build_history_index(self._dataset)
 
+        # initialize TD-errors as INF so all states are sampled at least once
+        self._current = 0
         self._buffer_size = len(self._indices)
-        self._TD_errors = np.ones(self._buffer_size) * 1e16  # Big numbers ensure all states are sampled at least once
+        self._TD_errors = np.ones(self._buffer_size) * 1e16
 
-        # Build index of states and their histories to speed up replay
-        if return_history:
-            self._history_indices = self._build_history_index(self._dataset)
-
-        self._return_history = return_history
         self._device = device
         self._max_len = max_len
         self._alpha = alpha  # -> 0.0 = to uniform sampling
         self._beta0 = beta0
         self._eps = eps
 
-    @staticmethod
-    def _get_non_terminal_state_indices(df):
-        """ Determine indices of all visitable non-terminal states in dataset """
-        return df.index[df.reward == 0].values
+    def reset(self):
+        """ Resets all parameters back to initial values """
+        self._current = 0
+        self._TD_errors = np.ones(self._buffer_size) * 1e16
 
-    @staticmethod
-    def _build_history_index(df):
+    def _build_history_index(self, df):
         """ Builds an index with start/stop indices of histories for each state """
+        indices = set()
         history_index = {}
         for _, episode in tqdm(df.groupby('episode', sort=False), desc='Building index of histories'):
             start_index = np.min(episode.index)  # History starts at the beginning of the episode
@@ -126,9 +120,15 @@ class PrioritizedReplay:
             for i in range(len(state_indices) - 1):
                 state_index = state_indices[i]
                 next_state_index = state_indices[i + 1]
-                history_index[state_index] = (start_index, next_state_index)  # Define history as start_state:next_state
 
-        return history_index
+                # ensure there's a difference between the state and next state
+                # we discard transitions which are very likely to be artifacts of missing data
+                diff = torch.sum(torch.absolute(self._states[state_index] - self._states[next_state_index]))
+                if diff > 0:
+                    history_index[state_index] = (start_index, next_state_index)
+                    indices.add(state_index)
+
+        return np.array(list(indices)), history_index
 
     def _to_index(self, transitions):
         # Returns indices of 'transitions' in full 'self._indices' index
@@ -149,10 +149,16 @@ class PrioritizedReplay:
         arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
         return torch.tensor(arr)[:, -self._max_len:]
 
-    def sample(self, N):
+    def sample(self, N, deterministic=False):
         # Stochastically sampling of transitions (indices) from replay buffer
         probs = self._selection_probs()
-        batch_transitions = np.random.choice(self._indices, size=N, replace=False, p=probs)
+        if not deterministic:
+            batch_transitions = np.random.choice(self._indices, size=N, replace=False, p=probs)
+        else:
+            # Iterate over states in episodes in order
+            indices = (self._current + np.arange(N)) % self._buffer_size
+            self._current = (self._current + N) % self._buffer_size
+            batch_transitions = self._indices[indices]
 
         # Compute importance sampling weights for Q-table update
         imp_weights = self._importance_weights(batch_transitions, probs)
@@ -163,27 +169,17 @@ class PrioritizedReplay:
         next_states = []
 
         for i in batch_transitions:
-            if self._return_history:
-                i_start, i_end = self._history_indices[i]
-                states.append(self._states[i_start:i + 1])
-                actions.append(self._actions[i])
-                rewards.append(self._rewards[i_end])
-                next_states.append(self._states[i_start:i_end + 1])
-            else:
-                states.append(self._states[[i]])
-                actions.append(self._actions[i])
-                rewards.append(self._rewards[i + 1])
-                next_states.append(self._states[[i + 1]])
+            i_start, i_end = self._history_indices[i]
+            states.append(self._states[i_start:i + 1])
+            actions.append(self._actions[i])
+            rewards.append(self._rewards[i_end])
+            next_states.append(self._states[i_start:i_end + 1])
 
-        # If return_histories, consolidate their lengths
-        if self._return_history:
-            states = self._pad_batch_sequences(states)
-            next_states = self._pad_batch_sequences(next_states)
-        else:
-            states = torch.stack(states, dim=0)[:, 0]
-            next_states = torch.stack(next_states, dim=0)[:, 0]
+        # consolidate  lengths
+        states = self._pad_batch_sequences(states)
+        next_states = self._pad_batch_sequences(next_states)
 
-        # Convert to torch Tensors on right device
+        # convert to torch Tensors on right device
         states = states.to(self._device)
         actions = torch.stack(actions, dim=0).to(self._device)
         rewards = torch.stack(rewards, dim=0).to(self._device)
