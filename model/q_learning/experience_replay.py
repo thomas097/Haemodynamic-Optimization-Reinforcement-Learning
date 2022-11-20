@@ -14,36 +14,37 @@ class EvaluationReplay:
     """ Implements an experience replay buffer to sequentially iterate over a
         dataset returning batches of individual states or complete histories.
     """
-    def __init__(self, dataset, device, max_len=512, return_history=False):
+    def __init__(self, dataset, device, max_len=512):
         dataset = dataset.reset_index(drop=True)
         states = dataset.filter(regex='x\d+').values
         self._states = torch.tensor(states, dtype=torch.float32)
 
+        # build index of states and their histories to speed up replay
+        self._indices, self._start_of_episode = self._build_history_index(dataset)
         self._indices = self._get_all_state_indices(dataset)
         self._buffer_size = self._indices.shape[0]
-        print('\nEvaluation dataset size: %d states' % self._buffer_size)
-
-        # Build index of states and their histories to speed up replay
-        if return_history:
-            self._start_of_episode = self._build_history_index(dataset)
-
-        self._return_history = return_history
         self._max_len = max_len
         self._device = device
 
-    @staticmethod
-    def _get_all_state_indices(dataset):
-        """ Determine indices of visitable states in dataset """
-        return dataset.index[dataset.reward.notna()].values
-
-    def _build_history_index(self, dataset):
+    def _build_history_index(self, df):
         """ Builds an index with start/stop indices of histories for each state """
+        indices = set()
         history_index = {}
-        for _, episode in tqdm(dataset.groupby('episode', sort=False), desc='Building index of histories'):
-            start_state_index = np.min(episode.index)
-            for i in self._get_all_state_indices(episode):
-                history_index[i] = start_state_index  # Only need to register first state of episode as end == i
-        return history_index
+        for _, episode in tqdm(df.groupby('episode', sort=False), desc='Building index of histories'):
+            start_index = np.min(episode.index)  # History starts at the beginning of the episode
+            state_indices = episode.index[episode.action.notna()]
+
+            for i in range(len(state_indices) - 1):
+                state_index = state_indices[i]
+
+                # ensure there's a difference between the state and next state
+                # we discard transitions which are very likely to be artifacts of missing data
+                diff = torch.sum(torch.absolute(self._states[state_index] - self._states[next_state_index]))
+                if diff > 0:
+                    history_index[state_index] = start_index
+                    indices.add(state_index)
+
+        return np.array(list(indices)), history_index
 
     def _pad_batch_sequences(self, sequences, value=0):
         arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
@@ -55,19 +56,10 @@ class EvaluationReplay:
 
             states = []
             for i in batch_transitions:
-                if self._return_history:
-                    states.append(self._states[self._start_of_episode[i]: i + 1])
-                else:
-                    states.append(self._states[i])
+                states.append(self._states[self._start_of_episode[i]: i + 1])
 
-            # If returning histories, consolidate their lengths
-            if self._return_history:
-                states = self._pad_batch_sequences(states)
-            else:
-                states = torch.stack(states, dim=0)
-
-            # GPU? GPU!
-            yield states.to(self._device)
+            # consolidate lengths
+            return self._pad_batch_sequences(states).to(self._device)
 
 
 class PrioritizedReplay:
