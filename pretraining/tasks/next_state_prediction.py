@@ -90,10 +90,10 @@ def fit_next_state(experiment,
     #####################
 
     # Load training data into replay buffer (set to uniform sampling)
-    train_dataloader = PrioritizedReplay(train_data, device=device, alpha=0, beta0=0, max_len=truncate, return_history=True)
+    train_dataloader = PrioritizedReplay(train_data, device=device, alpha=0, beta0=0, max_len=truncate)
 
     # Callback to evaluate model on valid data (set to deterministic sampling!)
-    valid_dataloader = PrioritizedReplay(valid_data, device=device, max_len=truncate, return_history=True)
+    valid_dataloader = PrioritizedReplay(valid_data, device=device, max_len=truncate)
     valid_callback = EvaluationCallback(valid_dataloader)
 
     model.train()
@@ -107,12 +107,6 @@ def fit_next_state(experiment,
         for _ in tqdm(range(batches_per_epoch), desc='Ep %d' % ep):
             # Sample random batch of (s, s') pairs from training data
             states, _, _, next_states, _, _ = train_dataloader.sample(batch_size)
-
-            if torch.isnan(states).any():
-                print('states did it')
-
-            if torch.isnan(next_states).any():
-                print('next_states did it')
 
             # Compute error of model
             loss = criterion(model(states), next_states[:, -1]) # drop history of next state!
