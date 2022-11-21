@@ -83,18 +83,20 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=0.99, lrate=1e-2, iters=1000):
+    def __init__(self, training_file, num_actions=25, gamma=0.99, lrate=1e-2, iters=1000, early_stopping=25):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
         For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
-        :param training_file:  Dataset used to train FQE estimator (only aggregated dataset is supported for now)
-        :param num_actions:    Number of possible actions by agent
-        :param gamma:          Discount factor
-        :param lrate:          Learning rate
-        :param iters:          Number of itraining iterations
+        :param training_file:   Dataset used to train FQE estimator (only aggregated dataset is supported for now)
+        :param num_actions:     Number of possible actions by agent
+        :param gamma:           Discount factor
+        :param lrate:           Learning rate
+        :param iters:           Number of itraining iterations
+        :param early_stopping:  Number of iterations of no improvement before stopping the training loop
         """
         # Pack training data file into a FQEDataset object holding states, actions, rewards, etc.
         self._train = FQEDataset(training_file)
         self._estimator = MLP(self._train.state_dims, num_actions)
+        self._early_stopping = early_stopping
         self._gamma = gamma
         self._iters = iters
         self._fitted = False
@@ -121,6 +123,7 @@ class FittedQEvaluation:
         reward_mask = (self._train.rewards == 0).float()
 
         # perform policy iteration
+        avg_q_vals = []
         with tqdm(range(self._iters)) as pbar:
             for _ in pbar:
                 # Q-estimate
@@ -136,7 +139,18 @@ class FittedQEvaluation:
                 self._criterion(q_pred, q_next).backward()
                 self._optimizer.step()
 
-                pbar.set_postfix({'avg_q': torch.mean(q_pred).item()})
+                # print average Q-value to screen
+                avg_q_vals.append(torch.mean(q_pred).item())
+                pbar.set_postfix({'avg_q': avg_q_vals[-1]})
+
+                # early stopping (seek improvement of at least 1e-2 above x episodes ago)
+                if avg_q > avg_q_vals[-self._early_stopping:] + 1e-2:
+                    no_improvement = 0
+                elif no_improvement == self._early_stopping:
+                    break
+                else:
+                    no_improvement += 1
+
 
         self._fitted = True
         return self
