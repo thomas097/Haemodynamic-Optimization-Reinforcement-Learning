@@ -1,6 +1,6 @@
 """
 Author:   Thomas Bellucci
-Filename: ckconv.py
+Filename: ckconv_layers.py
 Descr.:   Implements a 1D convolutional layer using a continuous kernel parameterization
           using SIRENs (Sitzmann et al., 2020) meant for irregularly-sampled time series.
           Code is based on an earlier implementation of CKConv (Romero et al., 2021),
@@ -16,7 +16,7 @@ import torch
 import torch.nn.functional as F
 
 
-class Sine(torch.nn.Module):
+class SineLayer(torch.nn.Module):
     def __init__(self, in_channels, out_channels, omega_0=1.0, use_bias=True):
         """ Implements a Sine layer with tunable omega_0 as in (Romero et al., 2021)
         For details: https://arxiv.org/pdf/2102.02611.pdf
@@ -37,6 +37,26 @@ class Sine(torch.nn.Module):
         return torch.sin(self._omega_0 * self._linear(x))
 
 
+class ReLULayer(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, use_bias=True, *args, **kwargs):
+        """ Implements a simple linear layer with LeakyReLU activation
+        For details: https://arxiv.org/pdf/2102.02611.pdf
+        :param in_channels:   Number of input features
+        :param out_channels:  Number of output features
+        :param use_bias:      Whether to include an additive bias
+        """
+        super().__init__()
+        self._linear = torch.nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=use_bias)
+        self._relu = torch.nn.LeakyReLU()
+
+    def forward(self, x):
+        """ Forward pass through ReLU layer
+        :param x:  Input tensor of shape (batch_size, in_channels, n_timesteps)
+        :returns:  Tensor of shape (batch_size, out_channels, n_timesteps)
+        """
+        return self._relu(self._linear(x))
+
+
 class LayerNorm(torch.nn.Module):
     def __init__(self, in_channels, eps=1e-12):
         """ Implementation of LayerNorm using GroupNorm """
@@ -48,19 +68,23 @@ class LayerNorm(torch.nn.Module):
 
 
 class KernelNet(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, d_kernel, omega_0=1.0, use_bias=True):
+    def __init__(self, in_channels, out_channels, d_kernel, activation='sine', omega_0=1.0, use_bias=True):
         """ Implementation of a SIREN kernel network used to model a bank of
         convolutional filters. For details: https://arxiv.org/abs/2006.09661
         :param in_channels:   Number of input features
         :param out_channels:  Number of output features
         :param d_kernel:      Number of hidden units of kernel network
+        :param activation:     Type of activation to use ('sine'|'relu')
         :param omega_0:       Initial guess of frequency parameter
         :param use_bias:      Whether to include an additive bias
         """
         super().__init__()
+        # select activation function for network
+        nonlin = SineLayer if activation == 'sine' else ReLULayer
+
         self.__kernel = torch.nn.Sequential(
-            Sine(1, d_kernel, omega_0=omega_0, use_bias=use_bias),
-            Sine(d_kernel, d_kernel, omega_0=omega_0, use_bias=use_bias),
+            nonlin(1, d_kernel, omega_0=omega_0, use_bias=use_bias),
+            nonlin(d_kernel, d_kernel, omega_0=omega_0, use_bias=use_bias),
             torch.nn.Conv1d(d_kernel, in_channels * out_channels, kernel_size=1)
         )
         self._initialize(omega_0)
@@ -87,12 +111,13 @@ class KernelNet(torch.nn.Module):
 
 
 class CKConv(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel=16, use_bias=True):
+    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel=16, activation='sine', use_bias=True):
         """ CKConv layer
         :param in_channels:    Number of input features
         :param out_channels:   Number of output features
         :param max_timesteps:  Maximum number of timesteps in input
         :param d_kernel:       Dimensions of the hidden layers of the kernel network
+        :param activation:     Type of activation to use ('sine'|'relu')
         :param use_bias:       Whether to include an additive bias
         """
         super().__init__()
@@ -102,9 +127,12 @@ class CKConv(torch.nn.Module):
         # kernel network + bias
         self._kernel = KernelNet(in_channels=in_channels,
                                  out_channels=out_channels,
-                                 d_kernel=d_kernel)
-
-        self._bias = torch.nn.Parameter(torch.randn(out_channels)) if use_bias else None
+                                 d_kernel=d_kernel,
+                                 activation=activation)
+        if use_bias:
+            self._bias = torch.nn.Parameter(torch.randn(out_channels))
+        else:
+            self._bias = None
 
         # precompute relative positions
         max_timesteps = max_timesteps + 1 if max_timesteps % 2 == 0 else max_timesteps
@@ -136,29 +164,35 @@ class CKConv(torch.nn.Module):
 
 
 class CKBlock(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel, use_bias=True, use_residual=False):
+    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel, activation='sine', use_bias=True, use_residual=False):
         """ CKConv block with layer normalization and optional residual connections (Bai et al., 2017)
         :param in_channels:    Number of input features
         :param out_channels:   Number of output features
         :param max_timesteps:  Maximum number of timesteps in input
         :param d_kernel:       Dimensions of the hidden layers of the kernel network
+        :param activation:     Type of activation to use ('sine'|'relu')
         :param use_bias:       Whether to include an additive bias (default: True)
         :param use_residual:   Whether to include a residual connection inside the block (default: False)
         """
         super().__init__()
-        # CKConv layer + Activation
-        self.ckconv = CKConv(in_channels, out_channels, max_timesteps, d_kernel=d_kernel, use_bias=use_bias)
+        # CKConv layer + activation
+        self.ckconv = CKConv(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            max_timesteps=max_timesteps,
+            d_kernel=d_kernel,
+            activation=activation,
+            use_bias=use_bias
+        )
         self.layer_norm = LayerNorm(out_channels)
         self.leaky_relu = torch.nn.LeakyReLU()
 
         # for skip connections, apply Conv1D to input if in_channels != out_channels
-        if use_residual:
-            if in_channels != out_channels:
-                self._res_conn = torch.nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
-            else:
-                self._res_conn = torch.nn.Identity()
-        else:
-            self._res_conn = None
+        self._res_conn = None
+        if use_residual and in_channels != out_channels:
+            self._res_conn = torch.nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
+        elif use_residual:
+            self._res_conn = torch.nn.Identity()
 
     def forward(self, x):
         """ Forward pass through layer

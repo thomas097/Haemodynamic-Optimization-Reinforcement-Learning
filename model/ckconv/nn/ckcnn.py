@@ -4,30 +4,19 @@ from ckconv_layers import CKBlock
 
 
 class CKCNN(torch.nn.Module):
-    def __init__(self, layer_channels, d_kernel, max_timesteps, static_channels=(), use_residual=False):
+    def __init__(self, layer_channels, d_kernel, max_timesteps, activation='sine', use_residual=True):
         """ CKConv block with layer normalization and optional residual connections (Bai et al., 2017)
         :param layer_channels:   Tuples specifying number of channels at each layer starting at the input layer,
                                  e.g. (8, 16, 4) creates a two-layer network mapping from 8 inputs to 4 outputs
                                  via a hidden layer of 16 channels
         :param d_kernel:         Dimensions of the hidden layers of the kernel network
         :param max_timesteps:    Maximum number of timesteps in input
-        :param static_channels:  Which input channels are static and thus do not benefit from convolution
-        :param use_residual:     Whether to include a residual connection inside CKConv blocks (default: False)
+        :param activation:       Type of activation to use: 'sine'|'relu' (default: 'sine')
+        :param use_residual:     Whether to include a residual connection inside CKConv blocks (default: True)
         """
         super(CKCNN, self).__init__()
         self.config = locals()
-        self._static_channels = static_channels
-        self._ckconv_channels = [i for i in range(layer_channels[0]) if i not in static_channels]
-
-        # static feature encoder + linear layer to fuse conv and static
-        self._static_layer = torch.nn.Sequential(
-            torch.nn.Linear(len(static_channels), layer_channels[-1]),
-            torch.nn.LeakyReLU(),
-        )
-        self._fusion_layer = torch.nn.Linear(layer_channels[-1] * 2, layer_channels[-1])
-
-        # subtract static features from number of convolution inputs
-        layer_channels = (layer_channels[0] - len(static_channels),) + layer_channels[1:]
+        print('Using %s kernels' % activation.title())
 
         # CK convolution blocks
         self._blocks = []
@@ -36,6 +25,7 @@ class CKCNN(torch.nn.Module):
                 in_channels=layer_channels[i],
                 out_channels=layer_channels[i + 1],
                 d_kernel=d_kernel,
+                activation=activation,
                 max_timesteps=max_timesteps,
                 use_residual=use_residual)
             self._blocks.append(block)
@@ -52,13 +42,8 @@ class CKCNN(torch.nn.Module):
         :returns:            Output tensor of shape (batch_size, n_timesteps, out_channels)
                              if `return_last=False`, else (batch_size, out_channels)
         """
-        x_ckconv = x[:, :, self._ckconv_channels].permute(0, 2, 1)
-        x_static = x[:, :, self._static_channels]
-
-        y1 = self._conv_layers(x_ckconv).permute(0, 2, 1)
-        y2 = self._static_layer(x_static)
-
-        y = self._fusion_layer(torch.concat([y1, y2], dim=2))
+        h = x.permute(0, 2, 1)
+        y = self._conv_layers(h).permute(0, 2, 1)
         return y[:, -1] if return_last else y
 
 
@@ -69,7 +54,6 @@ if __name__ == '__main__':
         layer_channels=(32, 16, 64),
         d_kernel=8,
         max_timesteps=100,
-        static_inputs=[1, 2, 3, 4, 5]
     )
 
     # Sanity check: time forward pass
