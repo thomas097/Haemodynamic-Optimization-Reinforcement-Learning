@@ -100,7 +100,7 @@ def soft_target_update(target, model, tau):
 def fit_double_dqn(experiment,
                    policy,
                    dataset,
-                   encoder=None,
+                   encoder,
                    num_episodes=1,
                    lrate=1e-3,
                    gamma=0.99,
@@ -120,40 +120,33 @@ def fit_double_dqn(experiment,
                    min_max_reward=(-15, 15),
                    save_on=False):
 
-    # Track performance and hyperparameters of experiment/models
-    tracker = PerformanceTracker(experiment)
-    tracker.save_experiment_config(policy=policy.config,
-                                   encoder=encoder.config if encoder else {'uses_encoder': False},
-                                   experiment=locals())
-
-    # GPU? GPU!
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Running on %s' % device)
 
+    # Track performance and hyperparameters of experiment/models
+    tracker = PerformanceTracker(experiment)
+    tracker.save_experiment_config(policy=policy.config, encoder=encoder.config, experiment=locals())
+
     # Load dataset into replay buffer
-    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, device=device,
-                                      return_history=encoder is not None)
+    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, device=device)
 
     # Adam optimizer with policy and encoder (if provided) and lr scheduler
-    modules = torch.nn.ModuleList([policy])
-    if encoder is not None:
-        modules.append(encoder)
-    optimizer = torch.optim.Adam(modules.parameters(), lr=lrate)
+    model = torch.nn.Sequential(encoder, policy)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lrate)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
 
     # Use target network for stability
-    policy_target = copy.deepcopy(policy)
-    encoder_target = copy.deepcopy(encoder)
+    target = copy.deepcopy(model)
 
     # Freeze encoder (optional)
-    if encoder is not None and freeze_encoder:
+    if freeze_encoder:
         encoder.eval()
         for param in encoder.parameters():
             param.requires_grad = False
         print('Freezing encoder...')
 
     # Gradient clipping to prevent catastrophic collapse
-    for w in policy.parameters():
+    for w in model.parameters():
         if w.requires_grad:
             w.register_hook(lambda grad: torch.clamp(grad, -1, 1))
 
@@ -162,18 +155,12 @@ def fit_double_dqn(experiment,
     #####################
 
     # GPU? GPU!
-    policy.to(device)
-    policy_target.to(device)
-    if encoder is not None:
-        encoder.to(device)
-        encoder_target.to(device)
+    model.to(device)
+    target.to(device)
 
-    # Enable training mode for policy; disable for its target
-    policy.train()
-    policy_target.eval()
-    if encoder is not None and freeze_encoder is False:
-        encoder.train()
-        encoder_target.eval()
+    # Enable training mode for policy; disable for the target network
+    model.train()
+    target.eval()
 
     for episode in tqdm(range(num_episodes)):
 
@@ -181,14 +168,12 @@ def fit_double_dqn(experiment,
         states, actions, rewards, next_states, transitions, weights = replay_buffer.sample(N=batch_size)
 
         # Estimate Q(s, a) with s optionally encoded from s_0:t
-        states = encoder(states) if encoder is not None else states
-        q_vals = policy(states)
+        q_vals = model(states)
         q_pred = q_vals.gather(dim=1, index=actions)
 
         with torch.no_grad():
             # Bootstrap Q(s', a') with s' optionally a function of s_0:t
-            next_states = encoder_target(next_states) if encoder is not None else next_states
-            next_target_state_value = policy_target(next_states)
+            next_target_state_value = target(next_states)
 
             # Clamp to min/max reward
             next_target_state_value = torch.clamp(next_target_state_value, min=-min_max_reward[0], max=min_max_reward[1])
@@ -197,7 +182,7 @@ def fit_double_dqn(experiment,
             reward_mask = (rewards == 0).float()
 
             # Compute target Q value
-            next_model_action = torch.argmax(policy(next_states), dim=1, keepdim=True)
+            next_model_action = torch.argmax(model(next_states), dim=1, keepdim=True)
             q_target = rewards + gamma * reward_mask * next_target_state_value.gather(dim=1, index=next_model_action)
 
         # Loss + regularization
@@ -215,8 +200,7 @@ def fit_double_dqn(experiment,
         optimizer.step()
 
         # Soft target updates
-        soft_target_update(policy_target, policy, tau)
-        soft_target_update(encoder_target, encoder, tau)
+        soft_target_update(target, model, tau)
 
         # Update lrate every few episodes
         if episode % step_scheduler_after == 0 and episode > 0:
@@ -238,8 +222,7 @@ def fit_double_dqn(experiment,
         # Evaluate model every few episodes
         if episode % eval_after == 0:
             if eval_func:
-                eval_args = (encoder, policy) if encoder is not None else (policy,)
-                tracker.add(**eval_func(*eval_args, batch_size=batch_size))
+                tracker.add(**eval_func(model, batch_size=batch_size))
 
             tracker.save_metrics()
             print('\nEp %d/%d: %s' % (episode, num_episodes, tracker.print_stats()))
@@ -251,12 +234,7 @@ def fit_double_dqn(experiment,
 
             if not save_on or new_best:
                 tracker.save_model_pt(policy, 'policy')
-                if encoder:
-                    tracker.save_model_pt(encoder, 'encoder')
-
-    # Disable training mode
-    policy.eval()
-    if encoder:
-        encoder.eval()
+                tracker.save_model_pt(encoder, 'encoder')
+                tracker.save_model_pt(model, 'model')
 
     print('Done!')

@@ -21,7 +21,6 @@ class EvaluationReplay:
 
         # build index of states and their histories to speed up replay
         self._indices, self._start_of_episode = self._build_history_index(dataset)
-        self._indices = self._get_all_state_indices(dataset)
         self._buffer_size = self._indices.shape[0]
         self._max_len = max_len
         self._device = device
@@ -29,7 +28,7 @@ class EvaluationReplay:
     def _build_history_index(self, df):
         """ Builds an index with start/stop indices of histories for each state """
         indices = set()
-        history_index = {}
+        start_of_episode = {}
         for _, episode in tqdm(df.groupby('episode', sort=False), desc='Building index of histories'):
             start_index = np.min(episode.index)  # History starts at the beginning of the episode
             state_indices = episode.index[episode.action.notna()]
@@ -41,10 +40,13 @@ class EvaluationReplay:
                 # we discard transitions which are very likely to be artifacts of missing data
                 diff = torch.sum(torch.absolute(self._states[state_index] - self._states[next_state_index]))
                 if diff > 0:
-                    history_index[state_index] = start_index
+                    start_of_episode[state_index] = start_index
                     indices.add(state_index)
 
-        return np.array(list(indices)), history_index
+        # sort index
+        indices = np.array(sorted(list(indices)))
+
+        return indices, start_of_episode
 
     def _pad_batch_sequences(self, sequences, value=0):
         arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
@@ -116,11 +118,14 @@ class PrioritizedReplay:
                 # ensure there's a difference between the state and next state
                 # we discard transitions which are very likely to be artifacts of missing data
                 diff = torch.sum(torch.absolute(self._states[state_index] - self._states[next_state_index]))
-                if diff > 0:
+                if diff > 1e-5:
                     history_index[state_index] = (start_index, next_state_index)
                     indices.add(state_index)
 
-        return np.array(list(indices)), history_index
+        # sort index
+        indices = np.array(sorted(list(indices)))
+
+        return indices, history_index
 
     def _to_index(self, transitions):
         # Returns indices of 'transitions' in full 'self._indices' index
@@ -159,7 +164,6 @@ class PrioritizedReplay:
         actions = []
         rewards = []
         next_states = []
-
         for i in batch_transitions:
             i_start, i_end = self._history_indices[i]
             states.append(self._states[i_start:i + 1])
