@@ -1,49 +1,60 @@
 import os
+import torch
+import numpy as np
 import pandas as pd
-from importance_sampling import WeightedIS
+from tqdm import tqdm
+from importance_sampling import WIS
 from doubly_robust import WeightedDoublyRobust
-from utils import *
+from experience_replay import EvaluationReplay
 
 
-def main(in_dir, model_paths, behavior_policy_file, mdp_training_file, method='fqe'):
-    # Build WIS estimator
-    wis = WeightedIS(behavior_policy_file, verbose=True)
+def load_pretrained(path):
+    """ Load pretrained pytorch model from file
+    :param path:  Path to Transformer instance in pt format
+    :returns:     A PyTorch model
+    """
+    if not os.path.exists(path):
+        raise Exception('%s does not exist' % path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = torch.load(path, map_location=device)
+    model.eval()
+    return model
 
-    # Estimate WIS/WDR of physician policy (using training set to fit model)
-    phys_action_probs = pd.read_csv(behavior_policy_file).filter(regex='\d+').values
-    #wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method=method).fit(phys_action_probs)
-    phys_wdr_score = 0.0#wdr(phys_action_probs)
-    phys_wis_score = wis(phys_action_probs)
 
-    # Store results in DataFrame
-    table = pd.DataFrame([[phys_wis_score], [phys_wdr_score]], columns=['Physician'], index=['WIS', 'WDR'])
+def evaluate(model, dataset, behavior_policy_file, mdp_training_file, batch_size=256):
+    # load dataset into replay buffer
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    replay = EvaluationReplay(dataset, device=device)
 
-    for model_name, (model_path, dataset_path) in model_paths.items():
-        # Load model
-        policy = load_pretrained(os.path.join(in_dir, model_path), 'policy.pt')
-        encoder = load_pretrained(os.path.join(in_dir, model_path), 'encoder.pt')
+    with torch.no_grad():
+        action_probs = []
+        with tqdm(total=len(dataset), desc='gathering predictions', position=0, leave=True) as pbar:
+            for histories in replay.iterate(batch_size):
+                # histories -> encoder -> policy network + softmax
+                probs = torch.softmax(model(histories), dim=1).cpu().detach().numpy()
+                action_probs.append(probs)
+                pbar.update(histories.size(0))
 
-        # Evaluate model on dataset
-        dataset = pd.read_csv(dataset_path)
-        action_probs = evaluate_policy_on_dataset(encoder, policy, dataset, _type='action_probs')
+    # convert torch tensors to numpy ndarray
+    policy = np.concatenate(action_probs, axis=0)
 
-        # Build and train WDR estimator on evaluation policy
-        #wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method=method).fit(action_probs)
+    # weighted importance sampling
+    wis = WIS(behavior_policy_file, bootstraps=1000)
+    wis_low, wis_mid, wis_high = wis(policy)
+    print('WIS = %.3f [%.3f, %.3f]' % (wis_mid, wis_low, wis_high))
 
-        # Compute WDR and WIS estimates of V^{pi_e}
-        table[model_name] = [wis(action_probs), 0.0]#wdr(action_probs)]
-
-    print(table)
+    # doubly robust
+    wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(policy)
+    print('WDR:  ', wdr(policy))
 
 
 if __name__ == '__main__':
-    roggeveen_data_file = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_valid.csv'
-    attention_data_file = '../../preprocessing/datasets/mimic-iii/attention_4h/mimic-iii_valid.csv'
-    behavior_policy_file = '../../ope/physician_policy/roggeveen_4h/mimic-iii_valid_behavior_policy.csv'
+    model = load_pretrained('../results/transformer_experiment_00000/model_5000.pt')
+    dataset = pd.read_csv('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv')
 
-    paths = {'Roggeveen et al.': ('roggeveen_experiment_00000', roggeveen_data_file),
-             }
-
-    in_dir = '../results/'
-
-    main(in_dir, paths, behavior_policy_file, roggeveen_data_file)
+    evaluate(
+        model=model,
+        dataset=dataset,
+        behavior_policy_file='../../ope/physician_policy/aggregated_all_1h/mimic-iii_valid_behavior_policy.csv',
+        mdp_training_file='../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv'
+    )

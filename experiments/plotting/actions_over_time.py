@@ -61,12 +61,11 @@ def actions_over_time(encoder, policy, dataset, bin_file, n_episodes, truncate=2
     """ determines proportion of IV/VP actions (0 - 4) chosen by model over time
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    use_encoder = encoder is not None
 
     # move dataset (limited to a random selection of n_episodes) to replay buffer
     episodes = random.sample(list(dataset.episode.unique()), k=n_episodes)
     dataset = dataset[dataset.episode.isin(episodes)]
-    replay_buffer = EvaluationReplay(dataset, device=device, max_len=truncate, return_history=use_encoder)
+    replay_buffer = EvaluationReplay(dataset, device=device, max_len=truncate, return_history=True)
 
     # compute total number of 'actionable' states in dataset
     states = dataset[dataset.action.notna()]
@@ -78,7 +77,7 @@ def actions_over_time(encoder, policy, dataset, bin_file, n_episodes, truncate=2
         with tqdm(total=total_states) as pbar:
             for x in replay_buffer.iterate(batch_size):
                 # feed batch of states (x) through model to predict action
-                h = encoder(x).detach() if use_encoder else x.detach()
+                h = encoder(x).detach()
                 a = torch.argmax(policy(h), axis=1)
                 actions.extend(a.tolist())
 
@@ -89,6 +88,24 @@ def actions_over_time(encoder, policy, dataset, bin_file, n_episodes, truncate=2
 
     # create table of shape (n_episodes, n_timesteps)
     n_timesteps = states.episode.value_counts().values[0]
+    iv_bins = iv_bins.reshape(n_episodes, n_timesteps)
+    vp_bins = vp_bins.reshape(n_episodes, n_timesteps)
+
+    # determine proportions of IV/VP at each time step
+    iv_action_props = action_proportions_at_timesteps(iv_bins)
+    vp_action_props = action_proportions_at_timesteps(vp_bins)
+    return iv_action_props, vp_action_props
+
+
+def physician_actions_over_time(dataset, bin_file):
+    """ Plots actions of physician over time """
+    # determine which IV/VP action (0 - 4) was takes at each timestep in each episode
+    dataset = dataset[dataset.action.notna()]
+    iv_bins, vp_bins = action_to_iv_vp_bins(dataset.action, bin_file=bin_file)
+
+    # create table of shape (n_episodes, n_timesteps)
+    n_episodes = len(dataset.episode.unique())
+    n_timesteps = dataset.episode.value_counts().values[0]
     iv_bins = iv_bins.reshape(n_episodes, n_timesteps)
     vp_bins = vp_bins.reshape(n_episodes, n_timesteps)
 
@@ -138,29 +155,11 @@ def plot(iv_action_props, vp_action_props, iv_labels, vp_labels):
     plt.show()
 
 
-def physician_actions_over_time(dataset, bin_file):
-    """ Plots actions of physician over time """
-    # determine which IV/VP action (0 - 4) was takes at each timestep in each episode
-    dataset = dataset[dataset.action.notna()]
-    iv_bins, vp_bins = action_to_iv_vp_bins(dataset.action, bin_file=bin_file)
-
-    # create table of shape (n_episodes, n_timesteps)
-    n_episodes = len(dataset.episode.unique())
-    n_timesteps = dataset.episode.value_counts().values[0]
-    iv_bins = iv_bins.reshape(n_episodes, n_timesteps)
-    vp_bins = vp_bins.reshape(n_episodes, n_timesteps)
-
-    # determine proportions of IV/VP at each time step
-    iv_action_props = action_proportions_at_timesteps(iv_bins)
-    vp_action_props = action_proportions_at_timesteps(vp_bins)
-    return iv_action_props, vp_action_props
-
-
 if __name__ == '__main__':
-    encoder = load_pretrained('../results/transformer_v2_experiment_00001/encoder.pt')
-    policy = load_pretrained('../results/transformer_v2_experiment_00001/policy.pt')
-    dataset = load_csv('../../preprocessing/datasets/mimic-iii/non_aggregated_1h/mimic-iii_valid.csv')
-    bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/non_aggregated_1h/action_to_vaso_fluid_bins.pkl')
+    encoder = load_pretrained('../results/roggeveen_experiment_00001/encoder.pt')
+    policy = load_pretrained('../results/roggeveen_experiment_00001/policy.pt')
+    dataset = load_csv('../../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_valid.csv')
+    bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/aggregated_1h/action_to_vaso_fluid_bins.pkl')
 
     # physician
     iv_action_props, vp_action_props = physician_actions_over_time(dataset, bin_file=bin_file)

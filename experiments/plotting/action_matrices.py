@@ -73,7 +73,7 @@ def predict_actions(encoder, policy, dataset, n_episodes, truncate=256, batch_si
 def matrix_from_actions(actions, bin_file):
     """ Populates action matrix of physician """
     # sanity check: drop NaNs if any
-    actions = actions[~np.isnan(actions)]
+    actions = np.array(actions)[~np.isnan(actions)]
 
     action_matrix = np.zeros((5, 5), dtype=np.uint64)
     for a in actions:
@@ -107,10 +107,10 @@ def plot_action_matrices(matrices, labels):
 
 
 if __name__ == '__main__':
-    encoder = load_pretrained('../results/transformer_v2_experiment_00001/encoder.pt')
-    policy = load_pretrained('../results/transformer_v2_experiment_00001/policy.pt')
-    dataset = load_csv('../../preprocessing/datasets/mimic-iii/non_aggregated_1h/mimic-iii_valid.csv')
-    bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/non_aggregated_1h/action_to_vaso_fluid_bins.pkl')
+    encoder = load_pretrained('../results/roggeveen_experiment_00001/encoder.pt')
+    policy = load_pretrained('../results/roggeveen_experiment_00001/policy.pt')
+    dataset = load_csv('../../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_valid.csv')
+    bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/aggregated_1h/action_to_vaso_fluid_bins.pkl')
 
     # physician
     phys_action_matrix = matrix_from_actions(dataset.action, bin_file=bin_file)
@@ -120,12 +120,12 @@ if __name__ == '__main__':
         encoder=encoder,
         policy=policy,
         dataset=dataset,
-        n_episodes=500,
+        n_episodes=-1,
     )
     policy_action_matrix = matrix_from_actions(model_actions, bin_file=bin_file)
 
     # plot!
     plot_action_matrices(
         matrices=[phys_action_matrix, policy_action_matrix],
-        labels=['Physician', 'Transformer']
+        labels=['Physician', 'Roggeveen et al. (2021)']
     )
