@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-# To ensure backwards-compatibility with older versions of keras.preprocessing
+# make backward-compatible with older versions of keras_preprocessing
 try:
     from keras.preprocessing.sequence import pad_sequences
 except:
@@ -20,7 +20,7 @@ class EvaluationReplay:
         self._states = torch.tensor(states, dtype=torch.float32)
 
         # build index of states and their histories to speed up replay
-        self._indices, self._start_of_episode = self._build_history_index(dataset)
+        self._indices, self._histories = self._build_history_index(dataset)
         self._buffer_size = self._indices.shape[0]
         self._max_len = max_len
         self._device = device
@@ -28,25 +28,20 @@ class EvaluationReplay:
     def _build_history_index(self, df):
         """ Builds an index with start/stop indices of histories for each state """
         indices = set()
-        start_of_episode = {}
+        histories = dict()
         for _, episode in tqdm(df.groupby('episode', sort=False), desc='Building index of histories'):
-            start_index = np.min(episode.index)  # History starts at the beginning of the episode
+            # history starts at the beginning of the episode
+            start_index = np.min(episode.index)
             state_indices = episode.index[episode.action.notna()]
 
-            for i in range(len(state_indices) - 1):
-                state_index = state_indices[i]
+            for state_index in state_indices:
+                histories[state_index] = start_index
+                indices.add(state_index)
 
-                # ensure there's a difference between the state and next state
-                # we discard transitions which are very likely to be artifacts of missing data
-                diff = torch.sum(torch.absolute(self._states[state_index] - self._states[next_state_index]))
-                if diff > 0:
-                    start_of_episode[state_index] = start_index
-                    indices.add(state_index)
+        # create index
+        indices = np.array(list(indices))
 
-        # sort index
-        indices = np.array(sorted(list(indices)))
-
-        return indices, start_of_episode
+        return indices, histories
 
     def _pad_batch_sequences(self, sequences, value=0):
         arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
@@ -58,10 +53,11 @@ class EvaluationReplay:
 
             states = []
             for i in batch_transitions:
-                states.append(self._states[self._start_of_episode[i]: i + 1])
+                states.append(self._states[self._histories[i]: i + 1])
 
             # consolidate lengths
-            return self._pad_batch_sequences(states).to(self._device)
+            states = self._pad_batch_sequences(states).to(self._device)
+            yield states
 
 
 class PrioritizedReplay:

@@ -97,28 +97,29 @@ def soft_target_update(target, model, tau):
                 target_w.data = ((1 - tau) * target_w.data + tau * model_w.data).clone()
 
 
-def fit_double_dqn(experiment,
-                   policy,
-                   dataset,
-                   encoder,
-                   num_episodes=1,
-                   lrate=1e-3,
-                   gamma=0.99,
-                   tau=1e-2,
-                   replay_alpha=0.4,
-                   replay_beta=0.6,
-                   batch_size=32,
-                   truncate=256, # TODO
-                   scheduler_gamma=0.9,
-                   step_scheduler_after=10000,
-                   freeze_encoder=False,
-                   lambda_reward=5.0,
-                   lambda_phys=0.0,
-                   lambda_consv=0.0,
-                   eval_func=None,
-                   eval_after=1,
-                   min_max_reward=(-15, 15),
-                   save_on=False):
+def fit_double_dqn(
+        experiment,
+        policy,
+        dataset,
+        encoder,
+        num_episodes=1,
+        lrate=1e-3,
+        gamma=0.99,
+        tau=1e-2,
+        replay_alpha=0.4,
+        replay_beta=0.6,
+        batch_size=32,
+        scheduler_gamma=0.9,
+        step_scheduler_after=10000,
+        freeze_encoder=False,
+        lambda_reward=5.0,
+        lambda_phys=0.0,
+        lambda_consv=0.0,
+        eval_func=None,
+        eval_after=1,
+        min_max_reward=(-15, 15),
+        save_on=False
+    ):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Running on %s' % device)
@@ -132,18 +133,11 @@ def fit_double_dqn(experiment,
 
     # Adam optimizer with policy and encoder (if provided) and lr scheduler
     model = torch.nn.Sequential(encoder, policy)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lrate)
+    optimizer = torch.optim.Adam((policy if freeze_encoder else model).parameters(), lr=lrate)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
 
     # Use target network for stability
     target = copy.deepcopy(model)
-
-    # Freeze encoder (optional)
-    if freeze_encoder:
-        encoder.eval()
-        for param in encoder.parameters():
-            param.requires_grad = False
-        print('Freezing encoder...')
 
     # Gradient clipping to prevent catastrophic collapse
     for w in model.parameters():
