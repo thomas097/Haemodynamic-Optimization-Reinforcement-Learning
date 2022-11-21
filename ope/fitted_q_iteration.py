@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from fitted_q_evaluation import FuncApproximator, FQEDataset, FittedQEvaluation
+from fitted_q_evaluation import FittedQEvaluation
 
 
 class FittedQIteration(FittedQEvaluation):
