@@ -22,39 +22,76 @@ def load_pretrained(path):
     return model
 
 
+def read_txt(path):
+    """ Load text file from path
+    :param path:  Path to file
+    :returns:     List of '\n' delimited strings
+    """
+    with open(path, 'r') as file:
+        return [line.strip() for line in file.readlines()]
+
+
 class PermutationAttribution:
-    def __init__(self, n_features, n_timesteps, n_outputs, n_iters=32):
-        self._n_features = n_features
-        self._n_timesteps = n_timesteps
+    def __init__(self, n_outputs, n_samples=64):
         self._n_outputs = n_outputs
-        self._n_iters = n_iters
+        self._n_samples = n_samples
 
-    def __call__(self, episode, model):
-        episode = episode.repeat(self._n_iters, 1, 1)
+    @staticmethod
+    def _plot(attr_map, out_channel, feature_names):
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(111)
+        ax.imshow(attr_map.T)
 
-        map_ = torch.zeros(size=(self._n_iters, self._n_outputs) + episode.shape[1:])
+        # labels
+        n_timesteps, n_features = attr_map.shape
+        ax.set_xlabel('Time step')
+        ax.set_ylabel('Input feature')
+        ax.set_title('Output channel %d' % out_channel)
+        ax.yaxis.tick_right()
+        ax.set_yticks(np.arange(n_features))
+        ax.set_yticklabels(feature_names)
+        ax.yaxis.set_ticks_position('right')
 
+        plt.tight_layout()
+        plt.show()
+
+    def __call__(self, episode, model, plot=True, feature_names=None):
+        # simultaneously process each iteration as a batch
+        episode = episode.repeat(self._n_samples, 1, 1)
+
+        # create map to store model outputs into
+        _, n_timesteps, n_inputs = episode.shape
+        res = torch.zeros(size=(self._n_samples, self._n_outputs, n_timesteps, n_inputs))
+
+        # vary features at each timestep one at a time (keep everything
+        # constant except that one feature at that timestep)
         with torch.no_grad():
-            for t in tqdm(range(self._n_timesteps)):
-                for f in range(self._n_features):
-                    # Replace single feature with normal Gaussian noise
-                    episode2 = episode.clone().float()
-                    episode2[:, t, f] = torch.randn(self._n_iters)
+            with tqdm(total=n_timesteps) as pbar:
+                for t in range(n_timesteps):
+                    pbar.set_description('%d/%d' % (t + 1, n_timesteps))
+                    pbar.update(1)
+                    for f in range(n_inputs):
+                        # replace feature `f` at time `t` with standard Gaussian noise
+                        episode_noised = episode.clone().float()
+                        episode_noised[:, t, f] = torch.randn(self._n_samples)
 
-                    # Measure response of output neurons
-                    map_[:, :, t, f] = model(episode2)
+                        # measure response of output neurons
+                        res[:, :, t, f] = model(episode_noised)
 
-        attr_map = torch.std(map_, dim=0).detach().numpy()
+        # extract contribution as stdev of output varying only one feature at one timestep
+        # TODO: change
+        attr_map = torch.std(res, dim=0).detach().numpy()
 
-        for o in range(self._n_outputs):
-            plt.imshow(attr_map[o])
-            plt.show()
+        if plot:
+            # optionally plot each attribution map one-by-one
+            for o in range(self._n_outputs):
+                self._plot(attr_map[o], out_channel=o, feature_names=feature_names)
 
 
 if __name__ == '__main__':
-    model = load_pretrained("../results/transformer_nsp_pretraining_00008/encoder.pt")
+    model = load_pretrained("../results/transformer_nsp_pretraining_00001/encoder.pt")
     dataset = pd.read_csv('../../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_valid.csv')
-    #features = read_txt('../../preprocessing/datasets/mimic-iii/aggregated_1h/state_space_features.txt')
+    features = read_txt('../../preprocessing/datasets/mimic-iii/aggregated_1h/state_space_features.txt')
     timestep = 71
 
     # Sample episode from dataset
@@ -63,5 +100,5 @@ if __name__ == '__main__':
     episode = torch.tensor(episode[:timestep])
 
     # Compute attribution map!
-    pa = PermutationAttribution(n_features=48, n_timesteps=71, n_outputs=24)
-    pa(episode, model)
+    pa = PermutationAttribution(n_outputs=16)
+    pa(episode, model, feature_names=features)

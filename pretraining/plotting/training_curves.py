@@ -16,11 +16,11 @@ def load_config(path):
 def plot_training_curve(path, smooth_over_episodes):
     config = load_config(os.path.join(path, 'config.json'))
     train_loss = np.loadtxt(os.path.join(path, 'train_loss.npy'))
-    valid_loss = np.loadtxt(os.path.join(path, 'valid_loss.npy'))
-    valid_f1 = np.loadtxt(os.path.join(path, 'valid_f1.npy'))
+    valid_loss = np.loadtxt(os.path.join(path, 'hubert_loss.npy'))
+    valid_f1 = np.loadtxt(os.path.join(path, 'mse_loss.npy'))
 
     # Determine number of batches per episode
-    num_episodes = len(valid_loss) * config['experiment']['eval_after']
+    num_episodes = len(valid_loss)
     batches_per_episode = int(round(len(train_loss) / num_episodes))
 
     # Smooth over episodes
@@ -41,6 +41,6 @@ def plot_training_curve(path, smooth_over_episodes):
 
 
 if __name__ == '__main__':
-    path = "../results/transformer_v2_pretraining_00000"
-    plot_training_curve(path, smooth_over_episodes=3)
+    path = "../results/ckcnn_nsp_relu_pretraining_00001"
+    plot_training_curve(path, smooth_over_episodes=1)
 

@@ -1,58 +1,81 @@
+import os
 import torch
+import numpy as np
 import matplotlib.pyplot as plt
-from utils import load_pretrained
+from matplotlib import colors
 
 
-def plot_kernels(convnet, in_channels, out_channel, positions):
-    """ Plots kernels as a function of artificial inputs
-    :param convnet:      Trained convolutional network
-    :param in_channels:  Number of input channels / features
-    :param positions:    Positions at which to generate data
+def load_pretrained(path):
+    """ Load pretrained pytorch model from file
+    :param path:  Path to Transformer instance in pt format
+    :returns:     A PyTorch model
     """
-    # prepare artificial dataset with all features at all positions
-    X = []
-    for in_channel in range(in_channels):
-        x = torch.zeros(1, positions.size(0), 3)
-        x[0, :, 0] = torch.full((positions.size(0),), fill_value=in_channel)
-        x[0, :, 2] = positions
-        X.append(x)
-    X = torch.concat(X, dim=1)
+    if not os.path.exists(path):
+        raise Exception('%s does not exist' % path)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = torch.load(path, map_location=device)
+    model.eval()
+    return model
 
-    # obtain kernels for input
-    kernels = []
-    for kernel in convnet.kernels(X):
-        if len(kernel.shape) == 4:  # AsyncCKConv
-            kernel = torch.reshape(kernel[0, out_channel, -1], (-1, in_channels)).t()
-        else:
-            kernel = kernel[out_channel]  # regular CKConv / causal conv
-        kernels.append(kernel.detach().numpy().transpose())
 
-    # plot kernels side by side
-    plt.figure(figsize=(12, 8))
-    for layer, kernel in enumerate(kernels):
-        plt.subplot(1, 2, layer + 1)
-        plt.imshow(kernel)
-        plt.title('layer %d' % (layer + 1))
-        plt.xlabel('In channel')
-        plt.ylabel('Time')
+def read_txt(path):
+    """ Load text file from path
+    :param path:  Path to file
+    :returns:     List of '\n' delimited strings
+    """
+    with open(path, 'r') as file:
+        return [line.strip() for line in file.readlines()]
+
+
+def plot_kernels(convnet, out_channel, layer, feature_names):
+    """ Plots kernels as a function of artificial inputs
+    :param convnet:        Trained (continuous kernel) convolutional network
+    :param out_channel:    Output channel / feature for which to visualize kernel
+    :param layer:          Layer at which to visualize kernels
+    :param feature_names:  List of input feature names (no known for hidden layers)
+    """
+    # select kernel of specific out channel at specified layer
+    kernel = convnet.kernels[layer][out_channel]
+
+    # color map where the highest magnitude sets min/max of color range
+    rng = np.max(np.abs(kernel))
+    divnorm = colors.TwoSlopeNorm(vmin=-rng, vcenter=0., vmax=rng)
+
+    fig = plt.figure(figsize=(12, 8))
+    ax = fig.add_subplot(111)
+    ax.imshow(kernel, cmap='bwr', norm=divnorm)
+
+    # labels
+    n_features, n_timesteps = kernel.shape
+    ax.set_xlabel('Time step')
+    ax.set_ylabel('Input channel')
+    ax.set_title('Convolution kernel at layer %d of output channel %d' % (layer, out_channel))
+    ax.yaxis.tick_right()
+    ax.set_yticks(np.arange(n_features))
+    if feature_names is not None:
+        ax.set_yticklabels(feature_names)
+    else:
+        ax.set_yticklabels(['h%d' % f for f in range(n_features)])
+    ax.yaxis.set_ticks_position('right')
+
+    # grid lines
+    ax.set_xticks(np.arange(-.5, n_timesteps, 1), minor=True)
+    ax.set_yticks(np.arange(-.5, n_features, 1), minor=True)
+    ax.grid(which='minor', color='w', linestyle='-', linewidth=1)
+
+    plt.tight_layout()
     plt.show()
-
 
 if __name__ == '__main__':
     # Load model from file
-    #ckcnn = load_pretrained('roggeveen_experiment_blah_blah')
-    from async_ckcnn import AsyncCKCNN
+    model = load_pretrained("../results/ckcnn_nsp_relu_pretraining_00001/encoder.pt")
+    features = read_txt('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/state_space_features.txt')
 
-    timesteps = torch.linspace(1, 140, 101)  # todo: remove
-    ckcnn = AsyncCKCNN(
-        in_channels=47,
-        hidden_channels=56,
-        out_channels=96,
-        d_kernel=16,
-        positions=timesteps
-    )
-
-    plot_kernels(convnet=ckcnn,
-                 in_channels=46,
-                 out_channel=3,
-                 positions=torch.linspace(0, 72, 101))
+    for layer in range(1):
+        for out_channel in range(16):
+            plot_kernels(
+                convnet=model,
+                out_channel=out_channel,
+                layer=layer,
+                feature_names=features if layer == 0 else None,
+            )
