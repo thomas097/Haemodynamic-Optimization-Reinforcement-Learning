@@ -37,3 +37,20 @@ def load_data(path):
 def count_parameters(model):
     """ Computes the number of learnable parameters """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+def print_stats(df):
+    """ Prints frequency table of different actions """
+    # Count frequency and overall percentage of different actions
+    counts = df.action.value_counts()
+    index = counts.index
+    perc_of_total = 100 * counts.values / len(df.index)
+    perc_of_episodes = 100 * (df.groupby(['episode', 'action']).size().unstack(fill_value=0) > 0).mean(axis=0)
+
+    stats_df = pd.DataFrame({
+        'action': index,
+        'freq': counts.values,
+        '% of actions': perc_of_total,
+        '% of episodes': perc_of_episodes,
+    })
+    print('Action frequency:')
+    print(stats_df)
