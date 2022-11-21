@@ -11,7 +11,7 @@ from behavior_cloning import CosineWarmupScheduler
 
 
 class EvaluationCallback:
-    def __init__(self, valid_dataloader, num_samples=5000):
+    def __init__(self, valid_dataloader, num_samples=10000):
         """ Callback to evaluate model intermittently on validation set during training
         :param valid_dataloader:  DataLoader object loaded with validation set
         :param num_samples:       Max number of histories to evaluate on (for debugging purposes)
@@ -28,14 +28,13 @@ class EvaluationCallback:
         :param batch_size:  Number of states per batch
         :return:            MSE and Hubert scores on validation data
         """
-        # Collect predictions of model and target labels
         y_pred, y_true = [], []
+        total_samples = 0
 
         model.eval()
         with torch.no_grad():
-            total_samples = 0
-
-            # Collect predictions of model for states in dataset
+            # collect predictions of model for states in dataset
+            self._dataloader.reset()
             while total_samples <= self._num_samples:
                 total_samples += batch_size
                 states, _, _, next_states, _, _ = self._dataloader.sample(batch_size, deterministic=True)
@@ -48,8 +47,10 @@ class EvaluationCallback:
         y_true = torch.concat(y_true, dim=0)
 
         # Compute cross entropy loss and F1 scores
-        scores = {'hubert_loss': self._hubert(y_pred, y_true).item(),
-                  'mse_loss': self._mse(y_pred, y_true).item()}
+        scores = {
+            'hubert_loss': self._hubert(y_pred, y_true).item(),
+            'mse_loss': self._mse(y_pred, y_true).item()
+        }
         return scores
 
 

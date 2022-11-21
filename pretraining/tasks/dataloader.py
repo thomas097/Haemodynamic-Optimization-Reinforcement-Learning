@@ -15,7 +15,12 @@ class DataLoader:
     """ Implements a simple data loader returning sequences of states (histories)
         and their corresponding actions or labels
     """
-    def __init__(self, dataset, device, label_col='action', maxlen=512):
+    def __init__(self, dataset, device, label_col='action', maxlen=512, seed=42):
+        self._seed = seed
+        self._maxlen = maxlen
+        self._device = device
+        random.seed(seed)
+
         # Store dataset of states and actions
         dataset = dataset.reset_index(drop=True)
         self._states = dataset.filter(regex='x\d+').values
@@ -27,9 +32,6 @@ class DataLoader:
 
         # Build index of state:history pairs to speed up history lookup
         self._start_of_episode = self._build_history_index(dataset)
-
-        self._maxlen = maxlen
-        self._device = device
 
     @staticmethod
     def _get_all_state_indices(dataset):
