@@ -123,14 +123,14 @@ def evaluate_policy(policy, dataset, batch_size=128):
 
 if __name__ == '__main__':
     # estimate behavior policy from training set
-    TRAIN_SET = '../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_train.csv'
+    TRAIN_SET = '../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_train.csv'
 
     # Evaluate policy's actions on train/valid/test sets
-    DATASETS = ['../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_train.csv',
-                '../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv',
-                '../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_test.csv']
+    DATASETS = ['../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_train.csv',
+                '../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_valid.csv',
+                '../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_test.csv']
 
-    # Assign certain features additional weight. Please refer to (Roggeveen et al., 2021).
+    # Assign certain features additional weight. Please refer to (Roggeveen et al., 2021)
     # Remark: In the original work and Raghu et al., `chloride` is said to be up-weighted, but not in the code (Why?)
     SPECIAL_WEIGHTS = {
         'x1': 2,   # total_iv_fluid_prev
@@ -142,9 +142,9 @@ if __name__ == '__main__':
         'x17': 2,  # chloride
         'x29': 2,  # lactate
         'x43': 2,  # pf_ratio
-        'x46': 2,  # total_urine_output
+        'x48': 2,  # total_urine_output
     }
-    STATE_COLS = ['x%d' % i for i in range(48)]
+    STATE_COLS = ['x%d' % i for i in range(50)]
 
     #######################
     #   Estimate Policy   #
@@ -160,21 +160,22 @@ if __name__ == '__main__':
     weights = get_feature_weights(STATE_COLS, SPECIAL_WEIGHTS)
     policy = estimate_behavior_policy(TRAIN_SET, weights=weights)
 
-    # Step 2. Estimate action distribution of behavior policy over each dataset
+    # Step 2. Compute action distribution of behavior policy over each dataset
     for dataset in DATASETS:
         action_probs = evaluate_policy(policy, dataset)
 
         outfile = os.path.join(OUT_DIR, Path(dataset).stem + '_behavior_policy.csv')
         action_probs.to_csv(outfile, index=False)
 
-    # Sanity Check: Is kNN model predictive of action?
+    # Sanity Check: Is estimated policy predictive of the true policy's actions?
     from sklearn.metrics import f1_score
 
     chosen_actions = pd.read_csv(DATASETS[1]).action
     action_probs = evaluate_policy(policy, DATASETS[1]).filter(regex='\d+').values
     predicted_actions = np.argmax(action_probs, axis=1)
 
-    print('f1:', f1_score(chosen_actions, predicted_actions, average='macro'))
+    print('Behavior policy predictive of its own actions?')
+    print('F1:', f1_score(chosen_actions, predicted_actions, average='macro'))
 
 
 
