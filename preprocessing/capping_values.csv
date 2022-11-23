@@ -17,7 +17,7 @@ fio2,21,100
 glucose,1,30
 hb,1,15
 heart_rate,1,180
-height,100,200
+height,100,220
 inr,0.5,15
 ion_ca,0.3,2
 kalium,1,10
@@ -37,7 +37,7 @@ sirs_score,0,10
 sofa_score,0,25
 spo2,10,100
 sys_bp,30,300
-temp,25,44
+temp,32,44
 total_iv_fluid_prev,0,25000
 total_urine_output,0,10000
 trombo,0,2000
