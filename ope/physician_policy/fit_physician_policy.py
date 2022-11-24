@@ -49,6 +49,7 @@ class FaissWeightedKNN:
         for i, a in enumerate(self._actions):
             action_count[:, i] = np.sum(weights * (actions == a), axis=1)
 
+            # add current action too to ensure non-zero prob for chosen action
             if true_action is not None:
                 action_count[:, i] += (true_action == a)
 
@@ -56,12 +57,15 @@ class FaissWeightedKNN:
         return action_count / np.sum(action_count, axis=1, keepdims=True)
 
 
-def get_feature_weights(feature_names, feature_weights):
-    # Create vector of feature weights taking into account special feature weights
-    weights = np.ones(len(feature_names))
-    for i, feat in enumerate(feature_names):
-        if feat in feature_weights:
-            weights[i] = feature_weights[feat]
+def get_feature_weights(features_file, special_features, special_weight=2):
+    # associate feature names with index in feature vector
+    with open(features_file, 'r', encoding='utf-8') as file:
+        feature_indices = {line.strip(): i for i, line in enumerate(file.readlines())}
+
+    # Create vector of feature weights taking into account special weights
+    weights = np.ones(len(feature_indices))
+    for f in special_features:
+        weights[feature_indices[f]] = special_weight
     return weights
 
 
@@ -117,64 +121,57 @@ def evaluate_policy(policy, dataset, batch_size=128):
     action_probs = np.concatenate(action_probs, axis=0)
 
     # Combine action probs with chosen actions and rewards
-    return pd.DataFrame(data=np.column_stack([episode, actions, rewards, action_probs]),
-                        index=indices, columns=['episode', 'action', 'reward'] + list(range(25)))
+    res = pd.DataFrame(data=np.column_stack([episode, actions, rewards, action_probs]),
+                       index=indices, columns=['episode', 'action', 'reward'] + list(range(25)))
+    return res
 
 
 if __name__ == '__main__':
     # estimate behavior policy from training set
-    TRAIN_SET = '../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_train.csv'
+    TRAIN_SET = '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/train.csv'
 
     # Evaluate policy's actions on train/valid/test sets
-    DATASETS = ['../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_train.csv',
-                '../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_valid.csv',
-                '../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_1h/mimic-iii_test.csv']
+    DATASETS = ['../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/train.csv',
+                '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv',
+                '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/test.csv']
+
+    # specify which features are where in the data matrix
+    FEATURES_FILE = '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/state_space_features.txt'
 
     # Assign certain features additional weight. Please refer to (Roggeveen et al., 2021)
-    # Remark: In the original work and Raghu et al., `chloride` is said to be up-weighted, but not in the code (Why?)
-    SPECIAL_WEIGHTS = {
-        'x1': 2,   # total_iv_fluid_prev
-        'x3': 2,   # sofa_score
-        'x4': 2,   # weight
-        'x7': 2,   # age
-        'x11': 2,  # mean_bp
-        'x12': 2,  # dias_bp
-        'x17': 2,  # chloride
-        'x29': 2,  # lactate
-        'x43': 2,  # pf_ratio
-        'x48': 2,  # total_urine_output
-    }
-    STATE_COLS = ['x%d' % i for i in range(50)]
+    # Remark: In Roggeveen et al. and Raghu et al., `chloride` is said to be up-weighted, but not in the code (Why?)
+    SPECIAL_FEATURES = ['total_iv_fluid_prev', 'sofa_score', 'weight', 'age', 'mean_bp',
+                        'dias_bp', 'chloride', 'lactate', 'pf_ratio', 'total_urine_output']
+    weights = get_feature_weights(FEATURES_FILE, SPECIAL_FEATURES)
 
     #######################
     #   Estimate Policy   #
     #######################
 
-    # Step 0. Create output directory, e.g. mimic-iii-aggregated_1h
+    # Step 0. create output directory, e.g. mimic-iii-aggregated_1h
     parents = PurePath(TRAIN_SET).parents
     OUT_DIR = '%s-%s' % (parents[1].name, parents[0].name)
     if not os.path.exists(OUT_DIR):
         os.makedirs(OUT_DIR)
 
-    # Step 1. Estimate behavior policy from training set
-    weights = get_feature_weights(STATE_COLS, SPECIAL_WEIGHTS)
+    # Step 1. estimate behavior policy from training set
     policy = estimate_behavior_policy(TRAIN_SET, weights=weights)
 
-    # Step 2. Compute action distribution of behavior policy over each dataset
+    # Step 2. compute action distribution of behavior policy over each dataset
     for dataset in DATASETS:
         action_probs = evaluate_policy(policy, dataset)
 
         outfile = os.path.join(OUT_DIR, Path(dataset).stem + '_behavior_policy.csv')
         action_probs.to_csv(outfile, index=False)
 
-    # Sanity Check: Is estimated policy predictive of the true policy's actions?
+    # Sanity Check: is estimated policy predictive of the true policy's actions?
     from sklearn.metrics import f1_score
 
     chosen_actions = pd.read_csv(DATASETS[1]).action
     action_probs = evaluate_policy(policy, DATASETS[1]).filter(regex='\d+').values
     predicted_actions = np.argmax(action_probs, axis=1)
 
-    print('Behavior policy predictive of its own actions?')
+    print('Predictive of its own actions?')
     print('F1:', f1_score(chosen_actions, predicted_actions, average='macro'))
 
 
