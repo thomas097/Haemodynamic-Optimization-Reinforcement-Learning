@@ -127,48 +127,44 @@ def evaluate_policy(policy, dataset, batch_size=128):
 
 
 if __name__ == '__main__':
-    # estimate behavior policy from training set
-    TRAIN_SET = '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/train.csv'
-
-    # Evaluate policy's actions on train/valid/test sets
-    DATASETS = ['../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/train.csv',
-                '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv',
-                '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/test.csv']
-
-    # specify which features are where in the data matrix
-    FEATURES_FILE = '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/state_space_features.txt'
+    DATASET = '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h'
 
     # Assign certain features additional weight. Please refer to (Roggeveen et al., 2021)
     # Remark: In Roggeveen et al. and Raghu et al., `chloride` is said to be up-weighted, but not in the code (Why?)
     SPECIAL_FEATURES = ['total_iv_fluid_prev', 'sofa_score', 'weight', 'age', 'mean_bp',
                         'dias_bp', 'chloride', 'lactate', 'pf_ratio', 'total_urine_output']
-    weights = get_feature_weights(FEATURES_FILE, SPECIAL_FEATURES)
+    weights = get_feature_weights(os.path.join(DATASET, 'state_space_features.txt'), SPECIAL_FEATURES)
 
     #######################
     #   Estimate Policy   #
     #######################
 
     # Step 0. create output directory, e.g. mimic-iii-aggregated_1h
-    parents = PurePath(TRAIN_SET).parents
-    OUT_DIR = '%s-%s' % (parents[1].name, parents[0].name)
-    if not os.path.exists(OUT_DIR):
-        os.makedirs(OUT_DIR)
+    path = PurePath(DATASET)
+    out_dir = '%s-%s' % (path.parent.name, path.name)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
 
     # Step 1. estimate behavior policy from training set
-    policy = estimate_behavior_policy(TRAIN_SET, weights=weights)
+    train_file = os.path.join(DATASET, 'train.csv')
+    policy = estimate_behavior_policy(train_file, weights=weights)
 
     # Step 2. compute action distribution of behavior policy over each dataset
-    for dataset in DATASETS:
-        action_probs = evaluate_policy(policy, dataset)
+    for part in ['train', 'valid', 'test']:
+        data_file = os.path.join(DATASET, part + '.csv')
+        action_probs = evaluate_policy(policy, data_file)
 
-        outfile = os.path.join(OUT_DIR, Path(dataset).stem + '_behavior_policy.csv')
+        outfile = os.path.join(OUT_DIR, '%s_behavior_policy.csv' % part)
         action_probs.to_csv(outfile, index=False)
 
     # Sanity Check: is estimated policy predictive of the true policy's actions?
     from sklearn.metrics import f1_score
 
-    chosen_actions = pd.read_csv(DATASETS[1]).action
-    action_probs = evaluate_policy(policy, DATASETS[1]).filter(regex='\d+').values
+    valid_file = os.path.join(DATASET, 'valid.csv')
+    valid_behavior_policy_file = os.path.join(OUT_DIR, 'valid_behavior_policy.csv')
+
+    chosen_actions = pd.read_csv(valid_file).action
+    action_probs = pd.read_csv(valid_behavior_policy_file).filter(regex='\d+').values
     predicted_actions = np.argmax(action_probs, axis=1)
 
     print('Predictive of its own actions?')
