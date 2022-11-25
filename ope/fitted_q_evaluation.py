@@ -51,15 +51,19 @@ class FQEDataset:
         self._unpack_(training_file)
 
     def _unpack_(self, training_file):
+        # Add ETA to terminal state as feature
+        df = pd.read_csv(training_file).reset_index(drop=True)
+        H = df.groupby('episode').size().max()
+        df['h'] = df.groupby('episode').timestep.transform(lambda ep: (H - np.arange(len(ep))[::-1]) / H)
+
         # Unpack training_file file into states, actions, etc.
-        train_df = pd.read_csv(training_file).reset_index(drop=True)
-        all_states = train_df.filter(regex='x\d+').values
-        all_actions = train_df['action'].values
-        all_rewards = train_df['reward'].values
+        all_states = df.filter(regex='x\d+|h').values
+        all_actions = df['action'].values
+        all_rewards = df['reward'].values
 
         # Determine first and last states
-        first_state_idx = [g.index[0] for _, g in train_df.groupby('episode')]
-        last_state_idx = [g.index[-1] for _, g in train_df.groupby('episode')]
+        first_state_idx = [g.index[0] for _, g in df.groupby('episode')]
+        last_state_idx = [g.index[-1] for _, g in df.groupby('episode')]
 
         # Extract states, actions, rewards and 'next states'
         states = np.delete(all_states, last_state_idx, axis=0)
@@ -80,7 +84,7 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=1.0, lrate=1e-2, iters=1000, early_stopping=50):
+    def __init__(self, training_file, num_actions=25, gamma=1.0, lrate=1e-2, iters=1000, early_stopping=50, reward_range=(-100, 100)):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
         For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
         :param training_file:   Dataset used to train FQE estimator (only aggregated dataset is supported for now)
@@ -89,11 +93,13 @@ class FittedQEvaluation:
         :param lrate:           Learning rate
         :param iters:           Number of itraining iterations
         :param early_stopping:  Number of iterations of no improvement before stopping the training loop
+        :param reward_range:    (min, max) range of rewards
         """
         # Pack training data file into a FQEDataset object holding states, actions, rewards, etc.
         self._train = FQEDataset(training_file)
         self._estimator = MLP(self._train.state_dims, num_actions)
         self._early_stopping = early_stopping
+        self._min_reward, self._max_reward = reward_range
         self._gamma = gamma
         self._iters = iters
         self._fitted = False
@@ -133,6 +139,7 @@ class FittedQEvaluation:
                 with torch.no_grad():
                     exp_future_reward = self._estimator(self._train.next_states, action_probs=policy_next_action_probs)
                     q_next = self._train.rewards + self._gamma * reward_mask * exp_future_reward
+                    q_next = torch.clamp(q_next, min=self._min_reward, max=self._max_reward)
 
                 # update!
                 self._optimizer.zero_grad()

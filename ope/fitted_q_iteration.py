@@ -10,14 +10,15 @@ class FittedQIteration(FittedQEvaluation):
         Policy Evaluation (OPE). For details, see:
         http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
     """
-    def __init__(self, training_file, num_actions=25, gamma=1.0, lrate=1e-2, iters=1000, early_stopping=50):
+    def __init__(self, training_file, num_actions=25, gamma=1.0, lrate=1e-3, iters=1000, early_stopping=50, reward_range=(-100, 100)):
         super(FittedQIteration, self).__init__(
             training_file=training_file,
             num_actions=num_actions,
             gamma=gamma,
             lrate=lrate,
             iters=iters,
-            early_stopping=early_stopping
+            early_stopping=early_stopping,
+            reward_range=reward_range
         )
 
     def fit(self, *args, **kwargs):
@@ -37,12 +38,12 @@ class FittedQIteration(FittedQEvaluation):
                 # Q-estimate
                 q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
 
-                # Bootstrapped target
+                # bootstrapping target
                 with torch.no_grad():
                     exp_future_reward = torch.max(self._estimator(self._train.next_states), axis=1)[0]
                     q_next = self._train.rewards + self._gamma * reward_mask * exp_future_reward
+                    q_next = torch.clamp(q_next, min=self._min_reward, max=self._max_reward)
 
-                # Update!
                 self._optimizer.zero_grad()
                 self._criterion(q_pred, q_next).backward()
                 self._optimizer.step()
