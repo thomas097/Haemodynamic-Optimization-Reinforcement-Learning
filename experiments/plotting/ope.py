@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from importance_sampling import WIS
+from per_horizon_importance_sampling import PHWIS
 from doubly_robust import WeightedDoublyRobust
 from experience_replay import EvaluationReplay
 
@@ -21,14 +21,20 @@ def load_pretrained(path):
     return model
 
 
-def evaluate(model, dataset, behavior_policy_file, mdp_training_file, batch_size=256):
+def get_action_probs(policy, dataset_file, batch_size):
+    """ Obtains action probabilities for each history in dataset
+    :param policy:      A trained policy network
+    :param dataset:     Dataset with variable-length patient trajectories
+    :param batch_size:  Number of histories to process at once
+    :returns:           Tensor of shape (n_states, n_actions)
+    """
     # load dataset into replay buffer
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    replay = EvaluationReplay(dataset, device=device)
+    replay = EvaluationReplay(pd.read_csv(dataset_file), device=device)
 
     with torch.no_grad():
         action_probs = []
-        with tqdm(total=len(dataset), desc='gathering predictions', position=0, leave=True) as pbar:
+        with tqdm(total=len(dataset), desc='gathering predictions...', position=0, leave=True) as pbar:
             for histories in replay.iterate(batch_size):
                 # histories -> encoder -> policy network + softmax
                 probs = torch.softmax(model(histories), dim=1).cpu().detach().numpy()
@@ -36,25 +42,34 @@ def evaluate(model, dataset, behavior_policy_file, mdp_training_file, batch_size
                 pbar.update(histories.size(0))
 
     # convert torch tensors to numpy ndarray
-    policy = np.concatenate(action_probs, axis=0)
+    return np.concatenate(action_probs, axis=0)
 
-    # weighted importance sampling
-    wis = WIS(behavior_policy_file, bootstraps=1000)
-    wis_low, wis_mid, wis_high = wis(policy)
-    print('WIS = %.3f [%.3f, %.3f]' % (wis_mid, wis_low, wis_high))
 
-    # doubly robust
-    wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file, method='fqe').fit(policy)
-    print('WDR:  ', wdr(policy))
+def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=256, lrate=1e-2, iters=1000):
+    """ Computes WIS, FQE and WDR estimates of policy performance
+    :param policy_file:           A trained policy network
+    :param dataset_file:          Path to dataset with variable-length patient trajectories
+    :param behavior_policy_file:  Path to estimated behavior policy file containing action
+                                  probabilities at each state in the dataset
+    :param batch_size:            Number of histories to process at once
+    :param n_bootstraps:
+    """
+    # get policy's action probs for states in dataset
+    action_probs = get_action_probs(policy=load_pretrained(policy_file), dataset_file=dataset_file, batch_size=batch_size)
+
+    # fit WDR's DM estimator to policy
+    wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file=dataset_file, lrate=lrate, iters=iters)
+    wdr.fit(action_probs)
+
+
+
+
+
 
 
 if __name__ == '__main__':
-    model = load_pretrained('../results/transformer_experiment_00000/model_5000.pt')
-    dataset = pd.read_csv('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv')
-
-    evaluate(
-        model=model,
-        dataset=dataset,
-        behavior_policy_file='../../ope/physician_policy/aggregated_all_1h/mimic-iii_valid_behavior_policy.csv',
-        mdp_training_file='../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv'
+    evaluate_policy(
+        policy_file='../results/transformer_experiment_00000/model_5000.pt',
+        dataset_file='../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv',
+        behavior_policy_file='../../ope/physician_policy/amsterdam-umc-db_aggregated_full_cohort_1h_knn/valid_behavior_policy.csv',
     )
