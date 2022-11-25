@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
-from loss_functions import *
+from loss_functions import weighted_Huber_loss, reward_regularizer
 
 
 class DuelingLayer(torch.nn.Module):
@@ -33,7 +33,7 @@ class DQN(torch.nn.Module):
         super(DQN, self).__init__()
         self.config = locals()
 
-        # Shared feature network
+        # shared feature network
         shape = (state_dim,) + hidden_dims
         layers = []
         for i in range(len(shape) - 1):
@@ -42,17 +42,17 @@ class DQN(torch.nn.Module):
             layers.append(torch.nn.ELU())
         self._base = torch.nn.Sequential(*layers)
 
-        # Q-head
+        # Q-network
         params = (shape[-1], num_actions)
         self._head = DuelingLayer(*params) if dueling else torch.nn.Linear(*params)
 
-        # Initialize weights using Xavier initialization
+        # initialize weights using Xavier initialization
         self.apply(self._init_xavier_uniform)
 
-        # Precompute additive mask to set value of disallowed actions to -inf
+        # precompute additive mask to set value of disallowed actions to -inf
         action_mask = torch.zeros((1, num_actions))
         action_mask[0, disallowed_actions] = -1e20
-        self._action_mask = torch.nn.Parameter(action_mask, requires_grad=False)
+        self.register_buffer('_action_mask', action_mask, persistent=True)
 
     @staticmethod
     def _init_xavier_uniform(layer):
@@ -112,34 +112,31 @@ def fit_double_dqn(
         scheduler_gamma=0.9,
         step_scheduler_after=10000,
         freeze_encoder=False,
-        lambda_reward=5.0,
-        lambda_phys=0.0,
-        lambda_consv=0.0,
+        lambda_reward=5,
+        lambda_reg=0.0,
+        regularizer=None,
         eval_func=None,
         eval_after=1,
-        min_max_reward=(-15, 15),
+        min_max_reward=(-100, 100),
         save_on=False
     ):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Running on %s' % device)
 
-    # Track performance and hyperparameters of experiment/models
+    # track performance and hyperparameters of experiment/models
     tracker = PerformanceTracker(experiment)
     tracker.save_experiment_config(policy=policy.config, encoder=encoder.config, experiment=locals())
 
-    # Load dataset into replay buffer
-    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, device=device)
+    # use target network for stability
+    model = torch.nn.Sequential(encoder, policy).to(device)
+    target = copy.deepcopy(model).to(device)
 
-    # Adam optimizer with policy and encoder (if provided) and lr scheduler
-    model = torch.nn.Sequential(encoder, policy)
+    # Adam optimizer and lr scheduler
     optimizer = torch.optim.Adam((policy if freeze_encoder else model).parameters(), lr=lrate)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=scheduler_gamma)
 
-    # Use target network for stability
-    target = copy.deepcopy(model)
-
-    # Gradient clipping to prevent catastrophic collapse
+    # gradient clipping to prevent catastrophic collapse
     for w in model.parameters():
         if w.requires_grad:
             w.register_hook(lambda grad: torch.clamp(grad, -1, 1))
@@ -148,61 +145,57 @@ def fit_double_dqn(
     #     Training      #
     #####################
 
-    # GPU? GPU!
-    model.to(device)
-    target.to(device)
+    # load dataset into replay buffer
+    replay_buffer = PrioritizedReplay(dataset, alpha=replay_alpha, beta0=replay_beta, device=device)
 
-    # Enable training mode for policy; disable for the target network
+    # enable training mode for policy; disable for the target network
     model.train()
     target.eval()
 
     for episode in tqdm(range(num_episodes)):
 
-        # Sample (s, a, r, s') transition from PER
-        states, actions, rewards, next_states, transitions, weights = replay_buffer.sample(N=batch_size)
+        # sample (s, a, r, s') transition from PER
+        states, actions, rewards, next_states, state_indices, weights = replay_buffer.sample(N=batch_size)
 
-        # Estimate Q(s, a) with s optionally encoded from s_0:t
+        # estimate Q(s, a) with s optionally encoded from s_0:t
         q_vals = model(states)
         q_pred = q_vals.gather(dim=1, index=actions)
 
         with torch.no_grad():
-            # Bootstrap Q(s', a') with s' optionally a function of s_0:t
+            # bootstrap Q(s', a') with s' optionally a function of s_0:t
             next_target_state_value = target(next_states)
 
-            # Clamp to min/max reward
+            # clamp to min/max reward
             next_target_state_value = torch.clamp(next_target_state_value, min=-min_max_reward[0], max=min_max_reward[1])
 
-            # Mask future reward at terminal state
+            # mask future reward at terminal state
             reward_mask = (rewards == 0).float()
 
-            # Compute target Q value
+            # compute target Q value
             next_model_action = torch.argmax(model(next_states), dim=1, keepdim=True)
             q_target = rewards + gamma * reward_mask * next_target_state_value.gather(dim=1, index=next_model_action)
 
-        # Loss + regularization
+        # loss + regularization
         loss = weighted_Huber_loss(q_pred, q_target, weights)
-        if lambda_reward > 0:
-            loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])  # Punishes model for exceeding min/max reward
-        if lambda_phys > 0:
-            loss += lambda_phys * physician_regularizer(q_vals, actions)    # Forces decisions to lie close to those of behavior policy
-        if lambda_consv > 0:
-            loss += lambda_consv * conservative_regularizer(q_vals, q_pred)  # Minimizes Q for OOD actions
+        loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])
+        if regularizer is not None:
+            loss += lambda_reg * regularizer(qvals=q_vals, state_indices=state_indices)
 
-        # Q-network and target updates
+        # update policy network
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # Soft target updates
+        # soft target updates
         soft_target_update(target, model, tau)
 
-        # Update lrate every few episodes
+        # update lrate every few episodes
         if episode % step_scheduler_after == 0 and episode > 0:
             scheduler.step()
 
-        # Update replay priority by TD-error
+        # update replay priority by TD-error
         td_error = torch.abs(q_target - q_pred).detach()
-        replay_buffer.update_priority(transitions, td_error)
+        replay_buffer.update_priority(state_indices, td_error)
 
         ############################
         #   Performance Tracking   #
@@ -213,15 +206,15 @@ def fit_double_dqn(
         tracker.add(abs_TD_error=torch.mean(td_error).item())
         tracker.add(avg_imp_weight=torch.mean(weights).item())
 
-        # Evaluate model every few episodes
+        # evaluate model every few episodes
         if episode % eval_after == 0:
             if eval_func:
-                tracker.add(**eval_func(model, batch_size=batch_size))
+                tracker.add(**eval_func(model))
 
             tracker.save_metrics()
             print('\nEp %d/%d: %s' % (episode, num_episodes, tracker.print_stats()))
 
-            # Save models upon improvement (or always if save_on=False)
+            # save models upon improvement (or always if save_on=False)
             new_best = tracker.new_best(metric=save_on)
             if new_best:
                 print('Model improved! Saving...')
