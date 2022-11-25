@@ -20,13 +20,34 @@ class PHWIS:
         # determine horizon of each episode
         horizon = behavior_df.groupby('episode').size()
 
+        # compute timestep in episode
+        timesteps = behavior_df.groupby('episode').action.transform(lambda ep: np.arange(len(ep)))
+
         # combine into DataFrame
         self._df = pd.DataFrame({
             'episode': behavior_df.episode.astype(int),
             'reward': behavior_df.reward,
+            'timestep': timesteps,
             'horizon': behavior_df.episode.apply(lambda x: horizon.loc[x]),
             'probs_b': probs_action
         })
+
+    def ratios(self, probs_action):
+        """ Returns a dataframe of cumulative importance ratios ('rho') for each timestep and episode
+        """
+        # compute importance ratio of action prob for chosen action under pi_e and pi_b
+        df = self._df.copy()
+        df['probs_e'] = np.take_along_axis(probs_action, indices=self._actions, axis=1).flatten()
+        df['ratio'] = df['probs_e'] / df['probs_b']
+
+        # compute importance weight, `rho`, at terminal timesteps and normalize over episodes of the same length
+        df['cumprod_ratio'] = df.groupby('episode').ratio.cumprod()
+        df['rho'] = df.groupby(['horizon', 'timestep']).cumprod_ratio.apply(lambda r: r / r.sum())
+
+        # compute weight of horizon, `wh`, as episodes_with_horizon / all_episodes
+        df['wh'] = df.groupby('horizon').episode.transform(lambda x: x.nunique()) / df.episode.nunique()
+
+        return df[['episode', 'rho', 'wh']]
 
     def __call__(self, probs_action):
         # create DataFrame with action prob for chosen action under pi_e and pi_b
@@ -49,8 +70,8 @@ class PHWIS:
             rewards = horizon_df.reward.values[horizon-1::horizon]
             wis.append(np.sum(weights * rewards))
 
-            # compute unnormalized weight for horizon
-            wh.append(np.sum(cum_ratios ** (1 / horizon)))
+            # horizon weight proportional to support
+            wh.append(weights.shape[0])
 
         # weigh WIS by horizon weights
         norm_wh = np.array(wh) / np.sum(wh)
