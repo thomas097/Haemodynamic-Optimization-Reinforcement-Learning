@@ -10,10 +10,17 @@ class FittedQIteration(FittedQEvaluation):
         Policy Evaluation (OPE). For details, see:
         http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
     """
-    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-2, iters=1000, reg=1e-2):
-        super(FittedQIteration, self).__init__(training_file, num_actions, gamma, lrate, iters, reg)
+    def __init__(self, training_file, num_actions=25, gamma=1.0, lrate=1e-2, iters=1000, early_stopping=50):
+        super(FittedQIteration, self).__init__(
+            training_file=training_file,
+            num_actions=num_actions,
+            gamma=gamma,
+            lrate=lrate,
+            iters=iters,
+            early_stopping=early_stopping
+        )
 
-    def fit(self, _=None):
+    def fit(self, *args, **kwargs):
         """
         Fits estimator for Q^πe to states, actions, rewards and next states obtained through
         a behavior policy πb. Note: In FQI, the behavior policy need not be supplied.
@@ -21,8 +28,11 @@ class FittedQIteration(FittedQEvaluation):
         # Mask out expected future reward at next state if terminal
         reward_mask = (self._train.rewards == 0).float()
 
-        # Perform policy iteration
+        # perform policy iteration
+        avg_q_vals = []
         with tqdm(range(self._iters)) as pbar:
+            no_improvement = 0
+
             for _ in pbar:
                 # Q-estimate
                 q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
@@ -37,7 +47,18 @@ class FittedQIteration(FittedQEvaluation):
                 self._criterion(q_pred, q_next).backward()
                 self._optimizer.step()
 
-                pbar.set_postfix({'avg_q': torch.mean(q_pred).item()})
+                # print average Q-value to screen
+                avg_q = torch.mean(q_pred).item()
+                pbar.set_postfix({'avg_q': avg_q})
+                avg_q_vals.append(avg_q)
+
+                # early stopping (seek improvement of at least 1e-2 above x episodes ago)
+                if avg_q > avg_q_vals[-self._early_stopping:][0] + 1e-2:
+                    no_improvement = 0
+                elif no_improvement == self._early_stopping:
+                    break
+                else:
+                    no_improvement += 1
 
         self._fitted = True
         return self
@@ -66,7 +87,7 @@ class FittedQIteration(FittedQEvaluation):
 
 if __name__ == '__main__':
     # Behavior policy
-    behavior_df = pd.read_csv('physician_policy/roggeveen_4h/mimic-iii_train_behavior_policy.csv')
+    behavior_df = pd.read_csv('physician_policy/amsterdam-umc-db_aggregated_full_cohort_1h_knn/valid_behavior_policy.csv')
     behavior_action_probs = behavior_df.filter(regex='\d+').values  # assume 25 actions
 
     # Zero policy
@@ -78,12 +99,15 @@ if __name__ == '__main__':
     random_action_probs = np.random.uniform(0, 1, behavior_action_probs.shape)
     random_action_probs = random_action_probs / np.sum(random_action_probs, axis=1, keepdims=True)
 
-    # Fit FQI
-    training_file = '../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_train.csv'
-    fqe = FittedQIteration(training_file).fit()
+    # Fit FQEs
+    # Note: always use aggregated data file for training (time points in non-aggregated file will match!)
+    training_file = '../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv'
+    behavior_estimator_fqi = FittedQIteration(training_file).fit()
+    print('Behavior: ', np.mean(behavior_estimator_fqi.state_value(behavior_action_probs)))
 
-    print('FQI - V(s0):')
-    print('Behavior: ', np.mean(fqe.state_value(behavior_action_probs)))
-    print('Zero-drug:', np.mean(fqe.state_value(zerodrug_action_probs)))
-    print('Random:   ', np.mean(fqe.state_value(random_action_probs)))
+    zerodrug_estimator_fqi = FittedQIteration(training_file).fit()
+    print('Zero-drug:', np.mean(zerodrug_estimator_fqi.state_value(zerodrug_action_probs)))
+
+    random_estimator_fqi = FittedQIteration(training_file).fit()
+    print('Random:   ', np.mean(random_estimator_fqi.state_value(random_action_probs)))
 

@@ -94,14 +94,15 @@ class WIS(IS):
         super().__init__(behavior_policy_file, gamma=gamma, bootstraps=bootstraps, conf=conf)
         self.ess = None
 
-    def _compute_effective_sample_size(self, ratios):
+    def _compute_effective_sample_size(self, ratios, timestep=-1):
         """ Estimates effective sample size of estimator
         See: http://www.nowozin.net/sebastian/blog/effective-sample-size-in-importance-sampling.html
-        :param ratios:  Unnormalized importance ratios
-        :return:        Effective sample size
+        :param ratios:     Unnormalized importance ratios
+        :param timestep:   At which timestep to evaluate sample size
+        :return:           Effective sample size
         """
-        weights = ratios / ratios.sum(axis=0, keepdims=True)
-        return 1 / np.sum(weights[:, -1] ** 2)
+        norm_ratios = ratios / ratios.sum(axis=0, keepdims=True)
+        return 1 / np.sum(norm_ratios[:, timestep] ** 2)
 
     def __call__(self, pi_e):
         """ Computes the WIS estimate of V^πe
@@ -143,7 +144,7 @@ class WIS(IS):
 
 if __name__ == '__main__':
     # behavior policy
-    behavior_policy_file = 'physician_policy/aggregated_4h/mimic-iii_test_behavior_policy.csv'
+    behavior_policy_file = 'physician_policy/aggregated_all_1h/mimic-iii_valid_behavior_policy.csv'
     behavior_df = pd.read_csv(behavior_policy_file)
     behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
 
@@ -198,7 +199,7 @@ if __name__ == '__main__':
     for p in tqdm(np.linspace(0, 1, 100)):
         wis_scores = []
         ess_scores = []
-        for _ in range(250):
+        for _ in range(50):
             # assign a random action distribution to `p` percentage of actions of evaluation policy!
             mask = np.random.random(behavior_policy.shape[0]) < p
             perm = np.random.permutation(behavior_policy.shape[1])

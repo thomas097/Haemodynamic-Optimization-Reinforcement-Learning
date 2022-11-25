@@ -40,7 +40,6 @@ class FQEDataset:
         """ Convenience wrapper to parse and store training dataset
         """
         self.state_dims = 0
-        self.num_timesteps = 0
         self.all_states = None
         self.all_actions = None
         self.states = None
@@ -61,7 +60,6 @@ class FQEDataset:
         # Determine first and last states
         first_state_idx = [g.index[0] for _, g in train_df.groupby('episode')]
         last_state_idx = [g.index[-1] for _, g in train_df.groupby('episode')]
-        num_timesteps = np.max(train_df.groupby('episode').action.size())
 
         # Extract states, actions, rewards and 'next states'
         states = np.delete(all_states, last_state_idx, axis=0)
@@ -71,7 +69,6 @@ class FQEDataset:
 
         # Pack data into FQEDataset object
         self.state_dims = states.shape[1]
-        self.num_timesteps = num_timesteps
         self.all_states = torch.Tensor(all_states)
         self.all_actions = torch.LongTensor(all_actions)
         self.last_state_idx = last_state_idx
@@ -83,12 +80,12 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=0.99, lrate=1e-2, iters=1000, early_stopping=25):
+    def __init__(self, training_file, num_actions=25, gamma=1.0, lrate=1e-2, iters=1000, early_stopping=50):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
         For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
         :param training_file:   Dataset used to train FQE estimator (only aggregated dataset is supported for now)
         :param num_actions:     Number of possible actions by agent
-        :param gamma:           Discount factor
+        :param gamma:           Discount factor to trade-off immediate against future reward
         :param lrate:           Learning rate
         :param iters:           Number of itraining iterations
         :param early_stopping:  Number of iterations of no improvement before stopping the training loop
@@ -117,6 +114,7 @@ class FittedQEvaluation:
         policy_next_action_probs = np.delete(policy_action_probs, self._train.first_state_idx, axis=0)
         policy_next_action_probs = torch.Tensor(policy_next_action_probs)
 
+        # sanity check: same number of states?
         assert policy_next_action_probs.shape[0] == self._train.states.shape[0]
 
         # define mask to mask out expected reward at next state in terminal states
@@ -125,6 +123,8 @@ class FittedQEvaluation:
         # perform policy iteration
         avg_q_vals = []
         with tqdm(range(self._iters)) as pbar:
+            no_improvement = 0
+
             for _ in pbar:
                 # Q-estimate
                 q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
@@ -140,17 +140,17 @@ class FittedQEvaluation:
                 self._optimizer.step()
 
                 # print average Q-value to screen
-                avg_q_vals.append(torch.mean(q_pred).item())
-                pbar.set_postfix({'avg_q': avg_q_vals[-1]})
+                avg_q = torch.mean(q_pred).item()
+                pbar.set_postfix({'avg_q': avg_q})
+                avg_q_vals.append(avg_q)
 
                 # early stopping (seek improvement of at least 1e-2 above x episodes ago)
-                if avg_q > avg_q_vals[-self._early_stopping:] + 1e-2:
+                if avg_q > avg_q_vals[-self._early_stopping:][0] + 1e-2:
                     no_improvement = 0
                 elif no_improvement == self._early_stopping:
                     break
                 else:
                     no_improvement += 1
-
 
         self._fitted = True
         return self
@@ -179,7 +179,7 @@ class FittedQEvaluation:
 
 if __name__ == '__main__':
     # Behavior policy
-    behavior_df = pd.read_csv('physician_policy/aggregated_1h/mimic-iii_train_behavior_policy.csv')
+    behavior_df = pd.read_csv('physician_policy/amsterdam-umc-db_aggregated_full_cohort_1h_knn/valid_behavior_policy.csv')
     behavior_action_probs = behavior_df.filter(regex='\d+').values  # assume 25 actions
 
     # Zero policy
@@ -193,7 +193,7 @@ if __name__ == '__main__':
 
     # Fit FQEs
     # Note: always use aggregated data file for training (time points in non-aggregated file will match!)
-    training_file = '../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_train.csv'
+    training_file = '../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv'
     behavior_estimator_fqe = FittedQEvaluation(training_file).fit(behavior_action_probs)
     print('Behavior: ', np.mean(behavior_estimator_fqe.state_value(behavior_action_probs)))
 
