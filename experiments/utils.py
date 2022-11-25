@@ -1,31 +1,45 @@
 import os
 import torch
 import pathlib as pl
+import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from experience_replay import EvaluationReplay
-from importance_sampling import WeightedIS
 from physician_entropy import PhysicianEntropy
+from per_horizon_importance_sampling import PHWIS
 
 
-class Callback:
-    def __init__(self, behavior_policy_file, valid_data):
+class OPECallback:
+    def __init__(self, behavior_policy_file, valid_data, batch_size=128):
         """ Callback to evaluate policy during training
         :param behavior_policy_file:  Estimated behavior policy
         :param valid_data:            Validation set
         """
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self._wis = WeightedIS(behavior_policy_file)
+        self._replay = EvaluationReplay(valid_data, device=device)
+        self._phwis = PHWIS(behavior_policy_file)
         self._phys = PhysicianEntropy(behavior_policy_file)
-        self._replay = EvaluationReplay(valid_data, return_history=True, device=device)
+        self._batch_size = batch_size
 
-    def __call__(self, encoder, policy, batch_size=128):
+    def __call__(self, model):
+        """ Evaluated encoder-policy pair using Weighted Importance Sampling on validation set
+        :param encoder:  History encoding model
+        """
         with torch.no_grad():
-            encoded_states = torch.concat([encoder(t).detach() for t in self._replay.iterate(batch_size)])
-            action_probs = policy.action_probs(encoded_states)
+            action_probs = []
+            with tqdm(desc='evaluating', position=0, leave=True) as pbar:
+                for states in self._replay.iterate(self._batch_size):
+                    # histories -> encoder -> policy network + softmax
+                    probs = torch.softmax(model(states), dim=1).cpu().detach().numpy()
+                    action_probs.append(probs)
+                    pbar.update(states.size(0))
 
-        weighted_is = self._wis(action_probs)
+        # convert torch tensors to numpy ndarray
+        action_probs = np.concatenate(action_probs, axis=0)
+
+        phwis_score = self._phwis(action_probs)
         phys_entropy = self._phys(action_probs)
-        return {'wis': weighted_is, 'physician_entropy': phys_entropy}
+        return {'phwis': phwis_score, 'physician_entropy': phys_entropy}
 
 
 def load_data(path):
