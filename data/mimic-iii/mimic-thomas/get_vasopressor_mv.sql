@@ -13,7 +13,7 @@ select
          WHEN itemid=221289 THEN rate * 1
 	 WHEN itemid=221662 THEN rate * 0.01
 	 WHEN itemid=222315 THEN rate * 5 / 60  --- /60 = convert to dose per minute | * 5 is conversion from dose/min to mcg/kg/min (assuming 100kg) 
-		 WHEN itemid=221749 THEN rate * 0.45 
+	 WHEN itemid=221749 THEN rate * 0.45 
          ELSE rate      END as mcgkgmin,
     CASE WHEN itemid=221906 THEN rate * 1 * patientweight -- convert to mcg/min
          WHEN itemid=221289 THEN rate * 1 * patientweight -- convert to mcg/min

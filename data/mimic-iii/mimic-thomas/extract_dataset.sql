@@ -13,9 +13,10 @@ BEGIN;
 \i vitals_all_rl.sql
 \i get_cohort.sql
 \i get_vasopressor_cv.sql
-\i get_vasopressor_mv.sql
+\i get_vasopressor_mv2.sql -- more complete collection of vasopressors with correct conversions
 \i get_inputevents_cv.sql
 \i get_inputevents_mv.sql
+\i get_vent_cohort.sql
 \i get_labs_cohort.sql
 \i get_vitals_cohort.sql
 \i get_demographics_cohort.sql
@@ -26,9 +27,10 @@ BEGIN;
 -- save to file
 \copy rl_cohort TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/cohort.csv' CSV HEADER;
 \copy vasopressors_cv TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/vasopressors_cv_cohort.csv' CSV HEADER;
-\copy vasopressors_mv TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/vasopressors_mv_cohort.csv' CSV HEADER;
+\copy vasopressors_mv2 TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/vasopressors_mv_cohort.csv' CSV HEADER;
 \copy inputevents_cv2 TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/inputevents_cv_cohort.csv' CSV HEADER;
 \copy inputevents_mv2 TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/inputevents_mv_cohort.csv' CSV HEADER;
+\copy vent_cohort TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/vent_cohort.csv' CSV HEADER;
 \copy labs_cohort TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/labs_cohort.csv' CSV HEADER;
 \copy vitals_cohort TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/vitals_cohort.csv' CSV HEADER;
 \copy demographics_cohort TO 'C:/Users/Uw naam/Desktop/Master Thesis Project VU/data/mimic-iii/final/demographics_cohort.csv' CSV HEADER;
