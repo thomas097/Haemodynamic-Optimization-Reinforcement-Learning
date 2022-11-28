@@ -2,9 +2,32 @@ import torch
 import pandas as pd
 
 
+def reward_regularizer(q_pred, limit):
+    """ Punishes policy for overestimating Q-values above or below limit """
+    return torch.clamp(torch.abs(q_pred) - limit, min=0).sum().double()
+
+
+def physician_regularizer(q_vals, true_actions):
+    """ Force networks action probabilities to lie closely to those of the physician. """
+    cross_entropy = torch.nn.CrossEntropyLoss()
+    return cross_entropy(q_vals, true_actions[:, 0])
+
+
+def conservative_regularizer(q_all, q_chosen_actions):
+    """ Applies a conservative Q-learning regularizer to minimize over-estimation of
+    Out-Of-Distribution (OOD) actions (underlying catastrophic collapse during training)
+    For details, see:
+    (Kumar et al., 2020) CQL: https://arxiv.org/pdf/2006.04779.pdf
+    OR
+    (Kaushik et al., 2022) CQL for sepsis: https://arxiv.org/pdf/2203.13884.pdf
+    """
+    return torch.mean(torch.log(torch.sum(torch.exp(q_all), dim=1))) - torch.mean(q_chosen_actions)
+
+
+
 class ESSRegularization:
-    def __init__(self, behavior_policy_file, n_timesteps=56, n_rollouts=100, min_sample_size=50):
-        """ Regularizes the model by enforcing a minimum effective sample size (ESS) in the WIS
+    def __init__(self, behavior_policy_file, n_timesteps=56, n_rollouts=100, min_sample_size=100):
+        """ Regularizes the model by enforcing a minimum effective sample size (ESS) in the (PH)WIS
         estimator. This way we obtain a policy that can be evaluated using OPE, while not forcing
         the policy to follow the behavior policy exactly.
         :param behavior_policy_file:  File containing actions and probabilities under behavior policy
@@ -21,7 +44,7 @@ class ESSRegularization:
         self._actions = torch.tensor(actions).long().unsqueeze(1)
         self._probas = torch.tensor(probas)
 
-        # horizon of WIS, i.e. number of time steps in episode
+        # horizon of WIS, i.e. number of time steps to roll out
         self._n_timesteps = n_timesteps
         self._n_rollouts = n_rollouts
         self._min_sample_size = min_sample_size
@@ -43,9 +66,9 @@ class ESSRegularization:
         # compute point-wise importance ratio
         ratio = pi_e / pi_b
 
-        # approximate cumulative importance weights at terminal time step through random re-sampling of ratios
+        # approximate cumulative importance weights n steps in through random roll-outs of ratios
         n_samples = ratio.size(0)
-        idx = torch.randint(low=0, high=n_samples, size=(self._n_rollouts, self._n_timesteps))
+        idx = torch.randint(low=0, high=n_samples, size=(self._n_rollouts, self._n_timesteps)) # sample with replacement!
         weights = torch.prod(ratio[idx], dim=1)
 
         # compute effective sample size
@@ -53,7 +76,7 @@ class ESSRegularization:
         ess = 1 / torch.sum(torch.pow(norm_weights, 2))
 
         # maximize sample size if below threshold (then allow exploratory freedom)
-        return torch.clamp(self._min_sample_size - ess, min=0)
+        return self._min_sample_size - ess
 
 
 if __name__ == '__main__':

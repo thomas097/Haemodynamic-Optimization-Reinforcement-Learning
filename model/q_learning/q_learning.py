@@ -6,7 +6,8 @@ import numpy as np
 from tqdm import tqdm
 from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
-from loss_functions import weighted_Huber_loss, reward_regularizer
+from loss_functions import weighted_Huber_loss
+from regularization import reward_regularizer, physician_regularizer, conservative_regularizer
 
 
 class DuelingLayer(torch.nn.Module):
@@ -113,8 +114,8 @@ def fit_double_dqn(
         step_scheduler_after=10000,
         freeze_encoder=False,
         lambda_reward=5,
-        lambda_reg=0.0,
-        regularizer=None,
+        lambda_phys=0.0,
+        lambda_consv=0.0,
         eval_func=None,
         eval_after=1,
         min_max_reward=(-100, 100),
@@ -177,9 +178,12 @@ def fit_double_dqn(
 
         # loss + regularization
         loss = weighted_Huber_loss(q_pred, q_target, weights)
-        loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])
-        if regularizer is not None:
-            loss += lambda_reg * regularizer(qvals=q_vals, state_indices=state_indices)
+        if lambda_reward > 0:
+            loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])
+        if lambda_phys > 0:
+            loss += lambda_phys * physician_regularizer(q_vals, actions)
+        if lambda_consv > 0:
+            loss += lambda_consv * conservative_regularizer(q_vals, q_pred)
 
         # update policy network
         optimizer.zero_grad()
