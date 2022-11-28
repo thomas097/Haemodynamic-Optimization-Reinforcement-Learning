@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from baseline_encoders import *
-from next_state_prediction import fit_next_state
+from behavior_cloning import fit_behavior_cloning
 from utils import count_parameters
 
 
@@ -11,29 +11,31 @@ if __name__ == '__main__':
     train_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/train.csv')
     valid_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv')
 
-    # Set up encoder and next-state regression decoder
-    encoder = LSTM()
-    print('Encoder parameters:', count_parameters(encoder))
+    # Drop IV/VP as they force a trivial solution
+    train_df = train_df.drop(['x0', 'x1'], axis=1)
+    valid_df = valid_df.drop(['x0', 'x1'], axis=1)
 
-    # decoder to output same number of state-space dims
-    decoder = torch.nn.Sequential(
-        torch.nn.Linear(55, 64),
+    encoder = LastState()
+
+    classifier = torch.nn.Sequential(
+        torch.nn.Linear(53, 96),
         torch.nn.LeakyReLU(),
-        torch.nn.Linear(64, 55)
+        torch.nn.Linear(96, 25),
     )
 
     # Train!
-    fit_next_state(
-        experiment='results/lstm_nsp_pretraining',
+    fit_behavior_cloning(
+        experiment='results/laststate_bc_pretraining',
         encoder=encoder,
-        decoder=decoder,
+        classifier=classifier,
         train_data=train_df,
         valid_data=valid_df,
-        lrate=5e-4,
-        epochs=100,
+        oversample_vaso=0,
         batches_per_epoch=500,
+        epochs=200,
         warmup=25,
-        truncate=8,
-        batch_size=8,
-        save_on='valid_mse'
+        lrate=1e-3,
+        batch_size=32,
+        truncate=256,  # way big
+        save_on=False
     )
