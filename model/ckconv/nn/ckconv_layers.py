@@ -57,6 +57,27 @@ class ReLULayer(torch.nn.Module):
         return self._relu(self._linear(x))
 
 
+class FourierInput(torch.nn.Module):
+    def __init__(self, out_channels, stdev=1.0):
+        """ Fourier input implementation as proposed in (Tancik et al., 2020)
+        For details, see: https://bmild.github.io/fourfeat/
+        :param out_channels:  Number of outputs of the Fourier mapping
+        :param stdev:         Standard deviation of Gaussian kernel (default: 1.0)
+        """
+        assert out_channels % 2 == 0
+        super(FourierInput, self).__init__()
+        self.register_buffer('_B', torch.randn(out_channels // 2) * stdev, persistent=True)
+
+    def forward(self, x):
+        """ Maps a vector of 1-dimensional points to D_out-dimensional vectors
+        using a random Fourier features
+        :param x:  Tensor of relative positions of shape (1, 1, n_timesteps)
+        :returns:  Tensor of shape (1, d_out, n_timesteps)
+        """
+        h = 2 * np.pi * torch.outer(self._B, x[0, 0]).unsqueeze(0)
+        return torch.concat([torch.sin(h), torch.cos(h)], dim=1)
+
+
 class LayerNorm(torch.nn.Module):
     def __init__(self, in_channels, eps=1e-12):
         """ Implementation of LayerNorm using GroupNorm """
@@ -68,29 +89,35 @@ class LayerNorm(torch.nn.Module):
 
 
 class KernelNet(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, d_kernel, activation='sine', omega_0=1.0, use_bias=True):
+    def __init__(self, in_channels, out_channels, d_kernel, kernel_type='siren', omega_0=1.0, use_bias=True, fourier_input=True):
         """ Implementation of a SIREN kernel network used to model a bank of
         convolutional filters. For details: https://arxiv.org/abs/2006.09661
-        :param in_channels:   Number of input features
-        :param out_channels:  Number of output features
-        :param d_kernel:      Number of hidden units of kernel network
-        :param activation:     Type of activation to use ('sine'|'relu')
-        :param omega_0:       Initial guess of frequency parameter
-        :param use_bias:      Whether to include an additive bias
+        :param in_channels:    Number of input features of kernel
+        :param out_channels:   Number of output features of kernel
+        :param d_kernel:       Number of hidden units of kernel network
+        :param kernel_type:    Type of kernel network to use ('siren'|'relu')
+        :param omega_0:        Initial guess of frequency parameter
+        :param use_bias:       Whether to include an additive bias
+        :param fourier_input:  Whether to use fourier features as input to the kernel network
         """
         super().__init__()
         # select activation function for network
-        nonlin = SineLayer if activation == 'sine' else ReLULayer
+        layer = SineLayer if kernel_type == 'siren' else ReLULayer
+
+        # random fourier features to map input to higher dimension
+        # Note: Fourier features output 2x d_kernel
+        d_in = 2 * d_kernel if fourier_input else 1
+        self._input_mapping = FourierInput(2 * d_kernel) if fourier_input else torch.nn.Identity()
 
         self.__kernel = torch.nn.Sequential(
-            nonlin(1, d_kernel, omega_0=omega_0, use_bias=use_bias),
-            nonlin(d_kernel, d_kernel, omega_0=omega_0, use_bias=use_bias),
+            layer(d_in, d_kernel, omega_0=omega_0, use_bias=use_bias),
+            layer(d_kernel, d_kernel, omega_0=omega_0, use_bias=use_bias),
             torch.nn.Conv1d(d_kernel, in_channels * out_channels, kernel_size=1)
         )
         self._initialize(omega_0)
 
-    def _initialize(self, omega_0):
-        """ Initializes weights of SIREN """
+    def _initialize(self, omega_0=1.0):
+        """ Initializes weights of kernel network """
         first_layer = True
         for (i, layer) in enumerate(self.modules()):
             if isinstance(layer, torch.nn.Conv1d):
@@ -103,32 +130,38 @@ class KernelNet(torch.nn.Module):
                     layer.weight.data.uniform_(-val, val)
 
     def forward(self, x):
-        """ Forward pass through kernel network
+        """ Forward pass through kernel network, optionally using Fourier features to encode the input
         :param x:  Tensor of relative positions of shape (1, 1, n_timesteps)
         :returns:  Kernel of shape (1, in_channels * out_channels, n_timesteps)
         """
-        return self.__kernel(x)
+        h = self._input_mapping(x) # Fourier or identity
+        return self.__kernel(h)
 
 
 class CKConv(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel=16, activation='sine', use_bias=True):
+    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel=16, kernel_type='siren', use_bias=True,
+                 fourier_input=True):
         """ CKConv layer
         :param in_channels:    Number of input features
         :param out_channels:   Number of output features
         :param max_timesteps:  Maximum number of timesteps in input
         :param d_kernel:       Dimensions of the hidden layers of the kernel network
-        :param activation:     Type of activation to use ('sine'|'relu')
+        :param kernel_type:    Type of kernel network to use ('siren'|'relu')
         :param use_bias:       Whether to include an additive bias
+        :param fourier_input:  Whether to use fourier features as input to the kernel network
         """
         super().__init__()
         self._in_channels = in_channels
         self._out_channels = out_channels
 
         # kernel network + bias
-        self._kernel = KernelNet(in_channels=in_channels,
-                                 out_channels=out_channels,
-                                 d_kernel=d_kernel,
-                                 activation=activation)
+        self._kernel = KernelNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            d_kernel=d_kernel,
+            kernel_type=kernel_type,
+            fourier_input=fourier_input,
+        )
         if use_bias:
             self._bias = torch.nn.Parameter(torch.randn(out_channels))
         else:
@@ -164,15 +197,17 @@ class CKConv(torch.nn.Module):
 
 
 class CKBlock(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel, activation='sine', use_bias=True, use_residual=False):
+    def __init__(self, in_channels, out_channels, max_timesteps, d_kernel, kernel_type='siren', use_bias=True,
+                 use_residuals=False, fourier_input=True):
         """ CKConv block with layer normalization and optional residual connections (Bai et al., 2017)
         :param in_channels:    Number of input features
         :param out_channels:   Number of output features
         :param max_timesteps:  Maximum number of timesteps in input
         :param d_kernel:       Dimensions of the hidden layers of the kernel network
-        :param activation:     Type of activation to use ('sine'|'relu')
+        :param kernel_type:    Type of kernel network to use ('siren'|'relu')
         :param use_bias:       Whether to include an additive bias (default: True)
-        :param use_residual:   Whether to include a residual connection inside the block (default: False)
+        :param use_residuals:  Whether to include a residual connection inside the block (default: False)
+        :param fourier_input:  Whether to use fourier features as input to the kernel network
         """
         super().__init__()
         # CKConv layer + activation
@@ -181,17 +216,18 @@ class CKBlock(torch.nn.Module):
             out_channels=out_channels,
             max_timesteps=max_timesteps,
             d_kernel=d_kernel,
-            activation=activation,
-            use_bias=use_bias
+            kernel_type=kernel_type,
+            use_bias=use_bias,
+            fourier_input=fourier_input
         )
         self.layer_norm = LayerNorm(out_channels)
         self.leaky_relu = torch.nn.LeakyReLU()
 
         # for skip connections, apply Conv1D to input if in_channels != out_channels
         self._res_conn = None
-        if use_residual and in_channels != out_channels:
+        if use_residuals and in_channels != out_channels:
             self._res_conn = torch.nn.Conv1d(in_channels, out_channels, kernel_size=1, bias=False)
-        elif use_residual:
+        elif use_residuals:
             self._res_conn = torch.nn.Identity()
 
     def forward(self, x):

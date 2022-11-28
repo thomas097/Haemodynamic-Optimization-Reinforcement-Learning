@@ -4,19 +4,23 @@ from ckconv_layers import CKBlock
 
 
 class CKCNN(torch.nn.Module):
-    def __init__(self, layer_channels, d_kernel, max_timesteps, activation='sine', use_residual=True):
+    def __init__(self, layer_channels, d_kernel, max_timesteps, kernel_type='siren', use_residuals=True, fourier_input=True):
         """ CKConv block with layer normalization and optional residual connections (Bai et al., 2017)
         :param layer_channels:   Tuples specifying number of channels at each layer starting at the input layer,
                                  e.g. (8, 16, 4) creates a two-layer network mapping from 8 inputs to 4 outputs
                                  via a hidden layer of 16 channels
         :param d_kernel:         Dimensions of the hidden layers of the kernel network
         :param max_timesteps:    Maximum number of timesteps in input
-        :param activation:       Type of activation to use: 'sine'|'relu' (default: 'sine')
-        :param use_residual:     Whether to include a residual connection inside CKConv blocks (default: True)
+        :param kernel_type:      Type of kernel network to use: 'siren'|'relu' (default: 'siren')
+        :param use_residuals:    Whether to include a residual connection inside CKConv blocks (default: True)
+        :param fourier_input:    Whether to use fourier features as input to the kernel network
         """
         super(CKCNN, self).__init__()
         self.config = locals()
-        print('Using %s kernels' % activation.title())
+        # stdout model setup
+        print('Using %s kernel network' % kernel_type.upper())
+        if fourier_input:
+            print('Using Fourier kernel inputs')
 
         # CK convolution blocks
         self._blocks = []
@@ -25,9 +29,11 @@ class CKCNN(torch.nn.Module):
                 in_channels=layer_channels[i],
                 out_channels=layer_channels[i + 1],
                 d_kernel=d_kernel,
-                activation=activation,
+                kernel_type=kernel_type,
                 max_timesteps=max_timesteps,
-                use_residual=use_residual)
+                use_residuals=use_residuals,
+                fourier_input=fourier_input
+            )
             self._blocks.append(block)
         self._conv_layers = torch.nn.Sequential(*self._blocks)
 
