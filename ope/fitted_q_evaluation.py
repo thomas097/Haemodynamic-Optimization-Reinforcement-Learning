@@ -58,8 +58,8 @@ class FQEDataset:
 
         # Unpack training_file file into states, actions, etc.
         all_states = df.filter(regex='x\d+|h').values
-        all_actions = df['action'].values
-        all_rewards = df['reward'].values
+        all_actions = df.action.values
+        all_rewards = df.reward.values
 
         # Determine first and last states
         first_state_idx = [g.index[0] for _, g in df.groupby('episode')]
@@ -72,6 +72,7 @@ class FQEDataset:
         next_states = np.delete(all_states, first_state_idx, axis=0)
 
         # Pack data into FQEDataset object
+        self.episodes = df.episode
         self.state_dims = states.shape[1]
         self.all_states = torch.Tensor(all_states)
         self.all_actions = torch.LongTensor(all_actions)
@@ -111,13 +112,13 @@ class FittedQEvaluation:
     def fitted(self):
         return self._fitted
 
-    def fit(self, policy_action_probs):
+    def fit(self, pi_e):
         """ Fits FQE estimator for Q^pi_e with state-action-reward-nextstate transitions
         collected under the behavior policy
-        :param policy_action_probs:  Tensor of action probabilities for each state
+        :param pi_e:  Tensor of action probabilities for each state
         """
         # limit policy's action probabilities to pi(*|s')
-        policy_next_action_probs = np.delete(policy_action_probs, self._train.first_state_idx, axis=0)
+        policy_next_action_probs = np.delete(pi_e, self._train.first_state_idx, axis=0)
         policy_next_action_probs = torch.Tensor(policy_next_action_probs)
 
         # sanity check: same number of states?
@@ -162,26 +163,39 @@ class FittedQEvaluation:
         self._fitted = True
         return self
 
-    def state_value(self, policy_action_probs):
-        """
-        Returns the estimated state value, V(s), according to the
-        evaluation policy on which the FQE instance was fitted.
+    def _limit_episodes(self, arr, episodes=None):
+        """ Convenience function to limit episodes in arr to a subset """
+        if episodes is not None:
+            return arr[self._train.episodes.isin(episodes)]
+        else:
+            return arr
+
+    def state_value(self, pi_e, episodes=None):
+        """ Returns the estimated state value, V(s), according to the
+        evaluation policy on which the FQE instance was fitted
+        :param pi_e:     Tensor of action probabilities for each state
+        param episodes:  Episodes to restrict state-values to
         """
         if not self._fitted:
             raise Exception('Estimator has not been fitted; Call fit().')
 
-        actions_probs = torch.Tensor(policy_action_probs)
-        return self._estimator(self._train.all_states, action_probs=actions_probs).detach().numpy()
+        # limit states to episodes (if specified)
+        states = self._limit_episodes(self._train.all_states, episodes=episodes)
+        probs = self._limit_episodes(torch.Tensor(pi_e), episodes=episodes)
 
-    def state_action_value(self):
-        """
-        Returns the estimated state-action value, Q(s, a), according to the
-        evaluation policy on which the FQE instance was fitted.
+        return self._estimator(states, action_probs=probs).detach().numpy()
+
+    def state_action_value(self, episodes=None):
+        """ Returns the estimated state-action value, Q(s, a), according to the
+        evaluation policy on which the FQE instance was fitted
         """
         if not self._fitted:
             raise Exception('Estimator has not been fitted; Call fit().')
 
-        return self._estimator(self._train.all_states).detach().numpy()
+        # limit states to episodes (if specified)
+        states = self._limit_episodes(self._train.all_states, episodes=episodes)
+
+        return self._estimator(states).detach().numpy()
 
 
 if __name__ == '__main__':

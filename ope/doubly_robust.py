@@ -18,13 +18,14 @@ class WeightedDoublyRobust:
         :param mdp_training_file:    Path to DataFrame containing states, actions and rewards of training set
         """
         self._min_reward, self._max_reward = reward_bounds
+        self._episodes = pd.read_csv(behavior_policy_file).episode
 
         # importance sampling (IS) estimator
-        self._phwis = PHWIS(behavior_policy_file)
+        self.phwis = PHWIS(behavior_policy_file)
 
         # direct method (DM) estimator (FQE or FQI)
         estimator = FittedQEvaluation if method == 'fqe' else FittedQIteration
-        self._dm = estimator(
+        self.dm = estimator(
             training_file=mdp_training_file,
             gamma=1.0, # per-horizon estimators do not know discounting
             lrate=lrate,
@@ -38,17 +39,18 @@ class WeightedDoublyRobust:
         :param train_pi_e:  Tensor of action probabilities at each training set state
         :returns:           Reference to self
         """
-        self._dm.fit(train_pi_e)
+        self.dm.fit(train_pi_e)
         return self
 
-    def __call__(self, pi_e):
-        """ Computes the WDR estimate of V^πe.
-        :param evaluation_policy: Table of action probs acc. to πe with shape (num_states, num_actions)
-        :returns:                 Estimate of mean V^πe
+    def __call__(self, pi_e, episodes=None):
+        """ Computes the WDR estimate of V^πe
+        :param pi_e:      Table of action probs acc. to πe with shape (num_states, num_actions)
+        :param episodes:  Subset of episodes of pi_e to consider in estimating V^πe
+        :returns:         Estimate of mean V^πe
         """
         # wis and importance weights
-        wis = self._phwis(pi_e)
-        ratios = self._phwis.ratios(pi_e)
+        wis = self.phwis(pi_e, episodes=episodes)
+        ratios = self.phwis.ratios(pi_e, episodes=episodes)
 
         # compute weight at t-1 by shifting the computed ratios forward by one timestep
         # Note : as rho_t-1 is not known at t=0, we choose to drop the first time step of
@@ -58,9 +60,13 @@ class WeightedDoublyRobust:
         rho = ratios.rho * ratios.wh
         rho_prev = ratios.rho_prev * ratios.wh
 
-        # estimate using model state values (v) and state-action values (q) w.r.t. chosen action
-        v = self._dm.state_value(pi_e)
-        q = np.take_along_axis(self._dm.state_action_value(), self._phwis._actions, axis=1).flatten()
+        # estimate using model V and Q covariates
+        v = self.dm.state_value(pi_e, episodes=episodes)
+        q = self.dm.state_action_value(episodes=episodes)
+
+        # limit V- and Q-values to selected episodes and actions chosen by behavior policy
+        actions = self.phwis._actions[self._episodes.isin(episodes)]
+        q = np.take_along_axis(q, actions, axis=1).flatten()
 
         # clip expected rewards to min/max reward
         v = np.clip(v, a_min=self._min_reward, a_max=self._max_reward)

@@ -5,32 +5,19 @@ import torch
 
 class PhysicianEntropy:
     def __init__(self, behavior_policy_file):
-        """ Compares the output action probabilities to those by the physician using cross-entropy.
-
-            Params
-            behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
-                                  behavior policy, chosen actions ('action') and associated rewards ('reward').
+        """ Compares the output action probabilities to those by the physician using cross-entropy
+        :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
+                                     behavior policy, chosen actions ('action') and associated rewards ('reward').
         """
-        # Distribution over actions of behavior policy (i.e. physician)
+        # Extract ations of behavior policy (i.e. physician)
         phys_df = pd.read_csv(behavior_policy_file)
-
-        self._pi_b = self._behavior_policy(phys_df)
+        self._actions = torch.tensor(phys_df.action.values).long()
         self._loss = torch.nn.CrossEntropyLoss()
 
-    @staticmethod
-    def _behavior_policy(df):
-        # Return numeric columns belonging to actions, e.g., '0' - '24'
-        return df.filter(regex='\d+').values.astype(np.float64)
-
-    def __call__(self, pi_e):
-        """ Computes the cross-entropy loss between the action probabilities of πe
-            and the target policy πb (the physician's policy).
-
-            pi_e:       Table of action probs acc. to πe with shape (num_states, num_actions)
-
-            Returns:    Estimate of mean V^πe
+    def __call__(self, logits):
+        """ Computes the cross-entropy loss between the action logits of πe
+        and the target actions of πb (the physician's policy)
+        :param logits:  Table of action probs acc. to πe with shape (num_states, num_actions)
+        :returns:       Cross entropy loss
         """
-        # Set impossible actions with pi_e values of zero to one (prevent log(0))
-        pi_e[pi_e < 1e-6] = 1
-        ln = -np.sum(self._pi_b * np.log(pi_e), axis=1)
-        return np.mean(ln)
+        return self._loss(torch.tensor(logits), self._actions).item()
