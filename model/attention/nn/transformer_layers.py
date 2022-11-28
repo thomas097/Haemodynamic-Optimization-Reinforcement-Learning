@@ -115,7 +115,7 @@ class SelfAttention(torch.nn.Module):
         :return:   Normalized attention matrix
         """
         z = torch.exp(x)
-        return z / (torch.sum(z, dim=2, keepdim=True) + 1e-5)
+        return z / (torch.sum(z, dim=2, keepdim=True) + 1e-8)
 
     def forward(self, x, src_mask, rel_dists):
         """ Forward pass through Self-Attention layer
@@ -129,7 +129,7 @@ class SelfAttention(torch.nn.Module):
         v = self._V(x)
         attn_logits = torch.matmul(q, torch.transpose(k, 1, 2))
 
-        # Relative per-channel positional encoding
+        # Relative positional encoding
         attn_logits = attn_logits - self._pos_encoding(rel_dists)
 
         # `src_mask` can be used to mask out future positions and padding

@@ -39,21 +39,23 @@ class Transformer(torch.nn.Module):
                 torch.nn.init.xavier_uniform_(p)
 
     @staticmethod
-    def _causal_mask(n_timesteps):
+    def _causal_mask(x):
         """ Computes an upper-triangular matrix to mask out future positions
         :param n_timesteps:  Number of time steps in sequence
         :returns:            FloatTensor of shape (batch_size, 1, num_timesteps, num_timesteps)
         """
+        n_timesteps = x.size(1)
         tri = torch.triu(torch.ones((1, n_timesteps, n_timesteps)), diagonal=1).bool()
-        return tri.detach()
+        return tri.detach().to(x.device)
 
-    def _distance_matrix(self, n_timesteps):
+    def _distance_matrix(self, x):
         """ Computes a matrix of signed distances between observations
         for learning relative positional encoding (RPE)
         :param n_timesteps:  Number of time steps in sequence
         :returns:            FloatTensor of shape (batch_size, 1, num_timesteps, num_timesteps)
         """
-        t = torch.arange(n_timesteps).unsqueeze(0).unsqueeze(2).float() / self._maxlen
+        n_timesteps = x.size(1)
+        t = torch.arange(n_timesteps).unsqueeze(0).unsqueeze(2).float().to(x.device) / self._maxlen
         return (t.permute(0, 2, 1) - t).unsqueeze(1).detach()
 
     def _padding_mask(self, x):
@@ -77,10 +79,10 @@ class Transformer(torch.nn.Module):
         # Create combined causal/padding mask
         src_mask = self._padding_mask(x)
         if self._causal:
-            src_mask = torch.logical_or(src_mask, self._causal_mask(x.size(1))).to(x.device)
+            src_mask = torch.logical_or(src_mask, self._causal_mask(x)).to(x.device)
 
         # Compute RPE distances
-        rel_dist = self._distance_matrix(x.size(1)).to(x.device)
+        rel_dist = self._distance_matrix(x).to(x.device)
 
         y = self._input_encoding(x)
         for layer in self._encoder_layers:
