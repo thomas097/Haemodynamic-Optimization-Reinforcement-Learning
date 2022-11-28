@@ -11,13 +11,13 @@ from performance_tracking import PerformanceTracker
 
 
 class EvaluationCallback:
-    def __init__(self, valid_dataloader, criterion, n_samples=20000):
+    def __init__(self, valid_dataloader, n_samples=20000):
         """ Callback to evaluate model intermittently on validation set during training
         :param valid_df:     DataFrame with validation set
         :param n_samples:  Max number of histories to evaluate on (for debugging purposes)
         """
         self._data = valid_dataloader
-        self._criterion = criterion
+        self._criterion = torch.nn.CrossEntropyLoss()
         self._n_samples = n_samples
 
     @staticmethod
@@ -32,8 +32,7 @@ class EvaluationCallback:
         return f1_score(y_true, y_pred, average='macro')
 
     def __call__(self, model, batch_size, weights=None):
-        """
-        Evaluates model on validation set
+        """ Evaluates model on validation set
         :param model:       Pytorch classification model
         :param batch_size:  Number of samples per batch
         :param weights:     Class weights used to counteract the class imbalance (optional)
@@ -61,7 +60,7 @@ class EvaluationCallback:
         y_true = torch.concat(y_true, dim=0)
 
         # Compute cross entropy loss and F1 scores
-        scores = {'valid_loss': self._criterion(y_pred, y_true).item(),
+        scores = {'valid_loss': self._criterion(y_pred, y_true.flatten()).item(),
                   'valid_f1': self._f1_score(y_pred, y_true)}
         return scores
 
@@ -162,7 +161,7 @@ def fit_behavior_cloning(experiment,
                          classifier,
                          train_data,
                          valid_data,
-                         batches_per_epoch=100,
+                         batches_per_epoch=1000,
                          oversample_vaso=0,
                          epochs=200,
                          warmup=25,
@@ -205,7 +204,7 @@ def fit_behavior_cloning(experiment,
 
     # Callback to evaluate model on valid data
     valid_dataloader = DataLoader(valid_data, label_col='action', maxlen=truncate, device=device)
-    valid_callback = EvaluationCallback(valid_dataloader, criterion=criterion)
+    valid_callback = EvaluationCallback(valid_dataloader)
 
     model.train()
     for ep in range(epochs):

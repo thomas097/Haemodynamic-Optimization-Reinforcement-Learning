@@ -18,7 +18,6 @@ class EvaluationCallback:
         """
         self._dataloader = valid_dataloader
         self._mse = torch.nn.MSELoss()
-        self._hubert = torch.nn.HuberLoss()
         self._num_samples = num_samples
 
     def __call__(self, model, batch_size):
@@ -39,19 +38,17 @@ class EvaluationCallback:
                 total_samples += batch_size
                 states, _, _, next_states, _, _ = self._dataloader.sample(batch_size, deterministic=True)
 
-                y_pred.append(model(states).detach())
+                pred_next_state = states[:, -1] + model(states)
+
+                y_pred.append(pred_next_state.detach())
                 y_true.append(next_states[:, -1])
         model.train()
 
         y_pred = torch.concat(y_pred, dim=0)
         y_true = torch.concat(y_true, dim=0)
 
-        # Compute cross entropy loss and F1 scores
-        scores = {
-            'hubert_loss': self._hubert(y_pred, y_true).item(),
-            'mse_loss': self._mse(y_pred, y_true).item()
-        }
-        return scores
+        # compute mean squared error loss
+        return {'valid_mse': self._mse(y_pred, y_true).item()}
 
 
 def fit_next_state(experiment,
@@ -73,13 +70,15 @@ def fit_next_state(experiment,
     tracker = PerformanceTracker(experiment)
     tracker.save_experiment_config(encoder=encoder.config, experiment=locals())
 
-    # Optimize combined encoder-regressor model w.r.t Hubert loss
+    # Optimize combined encoder-regressor model w.r.t MSE loss
     # We use a learning rate scheduler with warm-up to improve final performance,
     # see: https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/tutorial6/Transformers_and_MHAttention.html
     model = torch.nn.Sequential(encoder, decoder).to(device)
+    model.train()
+
     optimizer = torch.optim.Adam(model.parameters(), lr=lrate)
     scheduler = CosineWarmupScheduler(warmup=warmup, max_epochs=epochs, max_lrate=lrate)
-    criterion = torch.nn.HuberLoss()
+    criterion = torch.nn.MSELoss()
 
     # Gradient clipping to minimize influence of bad batches
     for w in model.parameters():
@@ -97,29 +96,28 @@ def fit_next_state(experiment,
     valid_dataloader = PrioritizedReplay(valid_data, device=device, max_len=truncate)
     valid_callback = EvaluationCallback(valid_dataloader)
 
-    model.train()
     for ep in range(epochs):
-        total_loss = 0.0
-        total_batches = 0
+        losses = []
 
         # Update learning rate acc. to scheduler
         scheduler.set(optimizer=optimizer, epoch=ep)
 
         for _ in tqdm(range(batches_per_epoch), desc='Ep %d' % ep):
-            # Sample random batch of (s, s') pairs from training data
+            # sample random batch of (s, s') pairs from training data
             states, _, _, next_states, _, _ = train_dataloader.sample(batch_size)
 
-            # Compute error of model
-            loss = criterion(model(states), next_states[:, -1]) # drop history of next state!
-            total_loss += loss.item()
-            total_batches += 1
+            # next state = current state + delta, i.e. predict delta = s_t+1 - s_t
+            pred_next_state = states[:, -1] + model(states)
+            true_next_state = next_states[:, -1]
 
-            # Backprop
+            loss = criterion(pred_next_state, true_next_state)
+            losses.append(loss.item())
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            if ep == 0 or total_batches == batches_per_epoch:
+            if ep == 0 or len(losses) == batches_per_epoch:
                 break
 
         ############################
@@ -127,7 +125,7 @@ def fit_next_state(experiment,
         ############################
 
         # Track training and validation loss
-        tracker.add(train_loss=total_loss / total_batches)
+        tracker.add(train_mse=np.mean(losses))
         tracker.add(**valid_callback(model, batch_size=batch_size))
         tracker.save_metrics()
 
@@ -139,7 +137,7 @@ def fit_next_state(experiment,
             print('Model improved! Saving...')
 
         if not save_on or new_best:
-            tracker.save_model_pt(model, 'regressor')
+            tracker.save_model_pt(model, 'nsp_model')
             tracker.save_model_pt(encoder, 'encoder')
 
     print('Done!')
