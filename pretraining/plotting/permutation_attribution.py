@@ -32,7 +32,7 @@ def read_txt(path):
 
 
 class PermutationAttribution:
-    def __init__(self, n_outputs, n_samples=64):
+    def __init__(self, n_outputs, n_samples=128):
         self._n_outputs = n_outputs
         self._n_samples = n_samples
 
@@ -89,10 +89,13 @@ class PermutationAttribution:
 
 
 if __name__ == '__main__':
-    model = load_pretrained("../results/transformer_nsp_pretraining_00001/encoder.pt")
-    dataset = pd.read_csv('../../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_valid.csv')
-    features = read_txt('../../preprocessing/datasets/mimic-iii/aggregated_1h/state_space_features.txt')
+    model = load_pretrained("../results/laststate_bc_pretraining_00000/encoder.pt")
+    dataset = pd.read_csv('../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv')
+    features = read_txt('../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/state_space_features.txt')
     timestep = 71
+
+    dataset = dataset.drop(['x0', 'x1'], axis=1)
+    features = features[2:]
 
     # Sample episode from dataset
     episode_id = random.choice(dataset.episode.unique())
@@ -100,5 +103,5 @@ if __name__ == '__main__':
     episode = torch.tensor(episode[:timestep])
 
     # Compute attribution map!
-    pa = PermutationAttribution(n_outputs=16)
+    pa = PermutationAttribution(n_outputs=32)
     pa(episode, model, feature_names=features)

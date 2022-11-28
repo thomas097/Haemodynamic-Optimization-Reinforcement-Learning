@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib import colors
 from collections import defaultdict
 from tqdm import tqdm
 
@@ -90,7 +91,7 @@ class IntegratedGradients:
         """
         for i, attr_map in attr_maps.items():
             # color map where the highest magnitude sets min/max of color range
-            rng = np.max(np.abs(attr_map))
+            rng = np.max(np.abs(attr_map.detach().numpy()))
             divnorm = colors.TwoSlopeNorm(vmin=-rng, vcenter=0., vmax=rng)
 
             # plot
@@ -155,9 +156,9 @@ class IntegratedGradients:
 
 
 if __name__ == '__main__':
-    model = load_pretrained("../results/transformer_nsp_pretraining_00001/encoder.pt")
-    dataset = pd.read_csv('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv')
-    features = read_txt('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/state_space_features.txt')
+    model = load_pretrained("../results/transformer_nsp_pretraining_00004/encoder.pt")
+    dataset = pd.read_csv('../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv')
+    features = read_txt('../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/state_space_features.txt')
     timestep = 71
 
     # Sample episode from dataset
@@ -166,5 +167,5 @@ if __name__ == '__main__':
     episode = torch.tensor(episode[:timestep])
 
     # Compute attribution map!
-    ig = IntegratedGradients(n_alphas=32, n_baselines=32, n_outputs=16)
+    ig = IntegratedGradients(n_alphas=56, n_baselines=32, n_outputs=32)
     ig(episode, model, plot=True, feature_names=features)
