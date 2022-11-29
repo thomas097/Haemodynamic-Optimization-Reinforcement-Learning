@@ -9,7 +9,7 @@ class PhysicianEntropy:
         :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
                                      behavior policy, chosen actions ('action') and associated rewards ('reward').
         """
-        # Extract ations of behavior policy (i.e. physician)
+        # Extract actions of behavior policy (i.e. physician)
         phys_df = pd.read_csv(behavior_policy_file)
         self._actions = torch.tensor(phys_df.action.values).long()
         self._loss = torch.nn.CrossEntropyLoss()

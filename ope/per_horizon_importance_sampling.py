@@ -37,9 +37,10 @@ class PHWIS:
 
     @property
     def ess(self):
-        # ESS from re-normalized weights
-        weights = np.array(self._ess) / np.sum(self._ess)
-        return 1 / np.sum(weights ** 2)
+        # weigh normalized importance weights by normalized horizon weight
+        ess = np.array([1 / np.sum(w ** 2) for w in self._ess])
+        wh = np.array([len(w) for w in self._ess])
+        return (wh / np.sum(wh)).dot(ess)
 
     def ratios(self, pi_e, episodes=None):
         """ Returns a dataframe of cumulative importance ratios ('rho') for each timestep and episode
@@ -99,7 +100,7 @@ class PHWIS:
             ratios = horizon_df.ratio.values.reshape(-1, horizon)
             weights = self._normalize(np.prod(ratios, axis=1))
 
-            # compute same-horizon WIS at terminal state
+            # compute within-horizon WIS weight at terminal state
             rewards = horizon_df.reward.values[horizon-1::horizon]
             wis.append(np.sum(weights * rewards))
 
@@ -108,9 +109,7 @@ class PHWIS:
             wh.append(n_episodes)
 
             # keep track of weights to track sample size!
-            # note: we scale by the support of the weights (i.e. number of episodes
-            # with this horizon) as this is used to normalize the WIS scores below
-            self._ess.extend((weights * n_episodes).tolist())
+            self._ess.append(weights)
 
         # weigh WIS by horizon weights
         norm_wh = np.array(wh) / np.sum(wh)
