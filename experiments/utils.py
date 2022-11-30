@@ -18,31 +18,37 @@ class OPECallback:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self._replay = EvaluationReplay(valid_data, device=device)
         self._phwis = PHWIS(behavior_policy_file)
-        self._phys = PhysicianEntropy(behavior_policy_file)
+        self._phys_ent = PhysicianEntropy(behavior_policy_file)
         self._batch_size = batch_size
+
+    def _softmax(self, x, temp=2):
+        z = np.exp(x / temp)
+        return z / np.sum(z, axis=1, keepdims=True)
 
     def __call__(self, model):
         """ Evaluated encoder-policy pair using Weighted Importance Sampling on validation set
         :param encoder:  History encoding model
         """
         with torch.no_grad():
-            action_probs = []
+            action_logits = []
             with tqdm(desc='evaluating', position=0, leave=True) as pbar:
                 for states in self._replay.iterate(self._batch_size):
                     # histories -> encoder -> policy network + softmax
-                    probs = torch.softmax(model(states), dim=1).cpu().detach().numpy()
-                    action_probs.append(probs)
+                    logits = model(states).cpu().detach().numpy()
+                    action_logits.append(logits)
                     pbar.update(states.size(0))
 
         # convert torch tensors to numpy ndarray
-        action_probs = np.concatenate(action_probs, axis=0)
+        action_logits = np.concatenate(action_logits, axis=0)
 
-        phwis_score = self._phwis(action_probs)
-        phys_entropy = self._phys(action_probs)
-        return {'phwis': phwis_score, 'physician_entropy': phys_entropy}
+        # metrics
+        phwis = self._phwis(self._softmax(action_logits))
+        ess = self._phwis.ess
+        phys_entropy = self._phys_ent(action_logits)
+        return {'phwis': phwis, 'ess': ess, 'physician_entropy': phys_entropy}
 
 
-def load_data(path):
+def load_data(path, add_missingness=False):
     """ Utility function to load in dataset with minimal memory footprint """
     # Load dataset and cast to efficient datatypes
     df = pd.read_csv(path)

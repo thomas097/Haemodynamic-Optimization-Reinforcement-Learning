@@ -1,14 +1,6 @@
-"""
-Author:   Thomas Bellucci
-Filename: train_dqn_with_ckcnn.py
-Descr.:   Performs the training of a Dueling Double DQN model with state-space
-          encoder over entire histories.
-Date:     01-10-2022
-"""
-
 import torch
 import pandas as pd
-from ckcnn import CKCNN
+from vanilla_transformer import Transformer
 from q_learning import DQN, fit_double_dqn
 from utils import load_data, load_pretrained, count_parameters, OPECallback
 
@@ -20,16 +12,17 @@ if __name__ == '__main__':
     # determine number of clinical measurements, i.e. x* columns
     n_inputs = train_df.filter(regex='x\d+').shape[1]
 
-    # Set up encoder and policy network
-    ckcnn = CKCNN(
-        layer_channels=(n_inputs, 32),
-        d_kernel=24,
-        kernel_type='siren',
-        max_timesteps=32,
-        use_residuals=True,
-        fourier_input=True,
+    # Set up encoder and classification head
+    transformer = Transformer(
+        in_channels=n_inputs,
+        out_channels=32,
+        d_model=32,
+        n_heads=4,
+        n_blocks=2,
+        d_key=16,
+        causal=True
     )
-    print('CKCNN parameters:', count_parameters(ckcnn))
+    print('Encoder params:', count_parameters(transformer))
 
     dqn = DQN(state_dim=32, hidden_dims=(96, 96), num_actions=25, disallowed_actions=(1, 2, 3, 4))
     print('DQN parameters:  ', count_parameters(dqn))
@@ -39,16 +32,16 @@ if __name__ == '__main__':
     callback = OPECallback(behavior_policy_file=behavior_policy_file, valid_data=valid_df)
 
     fit_double_dqn(
-        experiment='results/ckcnn_experiment',
+        experiment='results/transformer_experiment_supervised',
         policy=dqn,
-        encoder=ckcnn,
+        encoder=transformer,
         dataset=train_df,
-        lrate=1e-4,
+        lrate=1e-3,
         gamma=0.9,
         tau=1e-4,
         lambda_reward=5,
-        lambda_phys=0.8,
-        num_episodes=25000,
+        lambda_consv=0.5,
+        num_episodes=15000,
         batch_size=32,
         eval_func=callback,
         eval_after=500,
