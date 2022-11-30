@@ -72,14 +72,15 @@ class PrioritizedReplay:
 
         # extract states, action and rewards from dataset
         self._dataset = dataset.reset_index(drop=True)
+        self._dataset['reward'] = self._dataset.groupby('episode').reward.transform(self._smear_reward)
         states = self._dataset.filter(regex='x\d+').values  # state space features are marked by 'x*'
         actions = self._dataset.action.values
         rewards = self._dataset.reward.values
 
         # convert to PyTorch tensors
-        self._states = torch.tensor(states, dtype=torch.float32)
-        self._actions = torch.LongTensor(actions).unsqueeze(1)
-        self._rewards = torch.LongTensor(rewards).unsqueeze(1)
+        self._states = torch.tensor(states).float()
+        self._actions = torch.tensor(actions).long().unsqueeze(1)
+        self._rewards = torch.tensor(rewards).float().unsqueeze(1)
 
         # build index of states and their histories to speed up replay
         self._indices, self._history_indices = self._build_history_index(self._dataset)
@@ -94,6 +95,11 @@ class PrioritizedReplay:
         self._alpha = alpha  # -> 0.0 = to uniform sampling
         self._beta0 = beta0
         self._eps = eps
+
+    def _smear_reward(self, r, scale=1):
+        r_terminal = r.values[-1]
+        decay = np.exp(scale * (np.arange(len(r)) - len(r) + 1))
+        return (decay * r_terminal).astype(np.float32)
 
     def reset(self):
         """ Resets all parameters back to initial values """
@@ -141,13 +147,14 @@ class PrioritizedReplay:
         with torch.no_grad():
             # Stochastically sampling of transitions (indices) from replay buffer
             probs = self._selection_probs()
-            if not deterministic:
-                batch_transitions = np.random.choice(self._indices, size=N, replace=False, p=probs)
-            else:
+            if deterministic:
                 # Iterate over states in episodes in order
                 idx = (self._current + np.arange(N)) % self._buffer_size
                 self._current = (self._current + N) % self._buffer_size
                 batch_transitions = self._indices[idx]
+            else:
+                # Sample transitions acc. to priority
+                batch_transitions = np.random.choice(self._indices, size=N, replace=False, p=probs)
 
             # Compute importance sampling weights for Q-table update
             imp_weights = self._importance_weights(batch_transitions, probs)
@@ -172,6 +179,6 @@ class PrioritizedReplay:
             actions = torch.stack(actions, dim=0).to(self._device)
             rewards = torch.stack(rewards, dim=0).to(self._device)
             next_states = next_states.to(self._device)
-            imp_weights = torch.Tensor(imp_weights).unsqueeze(1).to(self._device)
+            imp_weights = torch.tensor(imp_weights).float().unsqueeze(1).to(self._device)
 
             return states, actions, rewards, next_states, batch_transitions, imp_weights
