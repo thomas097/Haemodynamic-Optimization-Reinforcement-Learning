@@ -3,8 +3,9 @@ import io
 import pickle
 import torch
 import numpy as np
+import pandas as pd
+import pathlib as pl
 from tqdm import tqdm
-
 from experience_replay import EvaluationReplay
 
 
@@ -13,19 +14,21 @@ def load_actions_to_bins(path):
         return pickle.load(file)
 
 
-def load_pretrained(path, model):
-    """ Loads pretrained model from file """
-    if model not in ['encoder.pt', 'policy.pt']:
-        raise Exception("Invalid model argument; Choose 'encoder.pt' or 'policy.pt'")
+def load_txt(path):
+    with open(path, 'r') as file:
+        return [l.strip() for l in file.readlines()]
 
-    full_path = os.path.join(path, model)
-    if not os.path.exists(full_path):
-        if model == 'policy.pt':
-            raise Exception('No policy.pt in %s ' % path)
-        return None
+
+def load_pretrained(path):
+    """ Loads pretrained model from path """
+    if not os.path.exists(path):
+        raise Exception('File %s does not exist' % path)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    return torch.load(full_path, map_location=device)
+    model = torch.load(path, map_location=device)
+    model.eval()
+    model.zero_grad()
+    return model
 
 
 def evaluate_policy_on_dataset(encoder, policy, dataset, _type='qvals'):
@@ -55,3 +58,20 @@ def run_encoder_over_dataset(encoder, dataset):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     replay = EvaluationReplay(dataset, return_history=True, device=device, max_len=256)
     return torch.concat([encoder(t).detach() for t in replay.iterate()]).detach().numpy()
+
+
+def load_data(path, add_missingness=False):
+    """ Utility function to load in dataset with minimal memory footprint """
+    # Load dataset and cast to efficient datatypes
+    df = pd.read_csv(path)
+    df['episode'] = df.episode.astype('category')
+    df['action'] = df.action.astype('float16')  # not uint as can contain NaNs :(
+    df['reward'] = df.reward.astype('float16')  # not int as can contain NaNs
+    for i in df.filter(regex='x\d+').columns:
+        df[i] = df[i].astype('float32')
+
+    # Print current memory usage
+    print('%s:' % pl.Path(path).stem)
+    print('size:  ', df.shape)
+    print('memory: %.1fGB\n' % (df.memory_usage(deep=True).sum() / (1 << 27)))
+    return df

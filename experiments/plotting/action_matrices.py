@@ -50,7 +50,7 @@ def predict_actions(encoder, policy, dataset, n_episodes, truncate=256, batch_si
         episodes = random.sample(episodes, k=n_episodes)
 
     dataset = dataset[dataset.episode.isin(episodes)]
-    replay_buffer = EvaluationReplay(dataset, device=device, max_len=truncate, return_history=True)
+    replay_buffer = EvaluationReplay(dataset, device=device, max_len=truncate)
 
     # compute total number of 'actionable' states in dataset
     states = dataset[dataset.action.notna()]
@@ -107,10 +107,10 @@ def plot_action_matrices(matrices, labels):
 
 
 if __name__ == '__main__':
-    encoder = load_pretrained('../results/roggeveen_experiment_00001/encoder.pt')
-    policy = load_pretrained('../results/roggeveen_experiment_00001/policy.pt')
-    dataset = load_csv('../../preprocessing/datasets/mimic-iii/aggregated_1h/mimic-iii_valid.csv')
-    bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/aggregated_1h/action_to_vaso_fluid_bins.pkl')
+    encoder = load_pretrained('../results/transformer_experiment_00000/encoder.pt')
+    policy = load_pretrained('../results/transformer_experiment_00000/policy.pt')
+    dataset = load_csv('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv')
+    bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/action_to_vaso_fluid_bins.pkl')
 
     # physician
     phys_action_matrix = matrix_from_actions(dataset.action, bin_file=bin_file)
@@ -127,5 +127,5 @@ if __name__ == '__main__':
     # plot!
     plot_action_matrices(
         matrices=[phys_action_matrix, policy_action_matrix],
-        labels=['Physician', 'Roggeveen et al. (2021)']
+        labels=['Physician', 'Transformer (CKCNN idem)']
     )
