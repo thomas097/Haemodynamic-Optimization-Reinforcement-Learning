@@ -39,8 +39,7 @@ class PHWIS:
     def ess(self):
         # weigh normalized importance weights by normalized horizon weight
         ess = np.array([1 / np.sum(w ** 2) for w in self._ess])
-        wh = np.array([len(w) for w in self._ess])
-        return (wh / np.sum(wh)).dot(ess)
+        return np.sum(ess)
 
     def ratios(self, pi_e, episodes=None):
         """ Returns a dataframe of cumulative importance ratios ('rho') for each timestep and episode
@@ -98,7 +97,7 @@ class PHWIS:
             # compute normalized cumulative importance weights at terminal state
             # (where reward is issued) for episodes of same length
             ratios = horizon_df.ratio.values.reshape(-1, horizon)
-            weights = self._normalize(np.prod(ratios, axis=1))
+            weights = self._normalize(np.prod(ratios ** 0.25, axis=1))
 
             # compute within-horizon WIS weight at terminal state
             rewards = horizon_df.reward.values[horizon-1::horizon]
@@ -118,9 +117,15 @@ class PHWIS:
 
 if __name__ == '__main__':
     # behavior policy
-    behavior_policy_file = 'physician_policy/amsterdam-umc-db_aggregated_full_cohort_1h_knn/valid_behavior_policy.csv'
+    behavior_policy_file = 'physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_knn/test_behavior_policy.csv'
     behavior_df = pd.read_csv(behavior_policy_file)
     behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
+
+    # policy that randomly deviates from physician 5% of the time
+    semi_random_policy = behavior_policy.copy()
+    i = np.random.random(semi_random_policy.shape[0]) < 0.05
+    j = np.random.permutation(np.sum(i)) # shuffle rows
+    semi_random_policy[i] = semi_random_policy[i][j]
 
     # random policy
     random_policy = np.random.uniform(0, 1, behavior_policy.shape)  # Noise
@@ -131,6 +136,9 @@ if __name__ == '__main__':
     behavior_phwis = estimator(behavior_policy)
     print('Behavior policy: %.3f (%.2f)' % (behavior_phwis, estimator.ess))
 
+    semi_random_phwis = estimator(semi_random_policy)
+    print('Semi-random policy: %.3f (%.2f)' % (semi_random_phwis, estimator.ess))
+
     random_phwis = estimator(random_policy)
     print('Random policy: %.3f (%.2f)' % (random_phwis, estimator.ess))
 
@@ -138,6 +146,7 @@ if __name__ == '__main__':
     rewards = behavior_df.reward.values
     exp_reward = np.mean(rewards[rewards != 0])
     print('\nTrue reward behavior policy:', exp_reward)
+    print('Support:', behavior_df.episode.nunique())
 
 
     
