@@ -65,7 +65,10 @@ class WeightedDoublyRobust:
         q = self.dm.state_action_value(episodes=episodes)
 
         # limit V- and Q-values to selected episodes and actions chosen by behavior policy
-        actions = self.phwis._actions[self._episodes.isin(episodes)]
+        if episodes is not None:
+            actions = self.phwis._actions[self._episodes.isin(episodes)]
+        else:
+            actions = self.phwis._actions
         q = np.take_along_axis(q, actions, axis=1).flatten()
 
         # clip expected rewards to min/max reward

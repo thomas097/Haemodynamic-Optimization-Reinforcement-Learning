@@ -39,7 +39,9 @@ class PHWIS:
     def ess(self):
         # weigh normalized importance weights by normalized horizon weight
         ess = np.array([1 / np.sum(w ** 2) for w in self._ess])
-        return np.sum(ess)
+        supp = np.array([w.shape[0] for w in self._ess])
+        supp = supp / np.sum(supp)
+        return ess.dot(supp)
 
     def ratios(self, pi_e, episodes=None):
         """ Returns a dataframe of cumulative importance ratios ('rho') for each timestep and episode

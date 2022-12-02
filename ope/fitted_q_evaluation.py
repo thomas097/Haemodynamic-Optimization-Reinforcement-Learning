@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 
 class MLP(torch.nn.Module):
-    def __init__(self, state_dims, num_actions, hidden_dims=24):
+    def __init__(self, state_dims, num_actions, hidden_dims=128):
         """ Simple Multi-Layer Perceptron for estimating the FQE Q-function
         :param state_dims:  Number of state space features
         :param num_actions: Number of actions
@@ -85,23 +85,22 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=1.0, lrate=1e-2, iters=1000, early_stopping=50, reward_range=(-100, 100)):
+    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-2, horizon=24, iters=50, reward_range=(-100, 100)):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
         For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
         :param training_file:   Dataset used to train FQE estimator (only aggregated dataset is supported for now)
         :param num_actions:     Number of possible actions by agent
         :param gamma:           Discount factor to trade-off immediate against future reward
         :param lrate:           Learning rate
-        :param iters:           Number of itraining iterations
-        :param early_stopping:  Number of iterations of no improvement before stopping the training loop
+        :param iters:           Training iterations
         :param reward_range:    (min, max) range of rewards
         """
         # Pack training data file into a FQEDataset object holding states, actions, rewards, etc.
         self._train = FQEDataset(training_file)
         self._estimator = MLP(self._train.state_dims, num_actions)
-        self._early_stopping = early_stopping
         self._min_reward, self._max_reward = reward_range
         self._gamma = gamma
+        self._horizon = horizon
         self._iters = iters
         self._fitted = False
 
@@ -129,36 +128,35 @@ class FittedQEvaluation:
 
         # perform policy iteration
         avg_q_vals = []
-        with tqdm(range(self._iters)) as pbar:
-            no_improvement = 0
+        with tqdm(range(self._horizon * self._iters)) as pbar:
 
-            for _ in pbar:
-                # Q-estimate
-                q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
+            # we compute the H-step horizon
+            for h in range(self._horizon):
 
-                # bootstrapped target using policy πe!
+                # Step 1: create dataset of states and bootstrapped targets
                 with torch.no_grad():
                     exp_future_reward = self._estimator(self._train.next_states, action_probs=policy_next_action_probs)
                     q_next = self._train.rewards + self._gamma * reward_mask * exp_future_reward
                     q_next = torch.clamp(q_next, min=self._min_reward, max=self._max_reward)
 
-                # update!
-                self._optimizer.zero_grad()
-                self._criterion(q_pred, q_next).backward()
-                self._optimizer.step()
+                # Step 2: fit model to said targets
+                for i in range(self._iters):
+                    # Q-estimate
+                    q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
 
-                # print average Q-value to screen
-                avg_q = torch.mean(q_pred).item()
-                pbar.set_postfix({'avg_q': avg_q})
-                avg_q_vals.append(avg_q)
+                    # update!
+                    self._optimizer.zero_grad()
+                    self._criterion(q_pred, q_next).backward()
+                    self._optimizer.step()
 
-                # early stopping (seek improvement of at least 1e-2 above x episodes ago)
-                if avg_q > avg_q_vals[-self._early_stopping:][0] + 1e-2:
-                    no_improvement = 0
-                elif no_improvement == self._early_stopping:
-                    break
-                else:
-                    no_improvement += 1
+                    # print average Q-value to screen
+                    pbar.set_postfix({
+                        'avg_q': torch.mean(q_pred).item(),
+                        'step': i
+                    })
+                    pbar.refresh()
+
+                    pbar.update(1)
 
         self._fitted = True
         return self
@@ -200,7 +198,7 @@ class FittedQEvaluation:
 
 if __name__ == '__main__':
     # Behavior policy
-    behavior_df = pd.read_csv('physician_policy/amsterdam-umc-db_aggregated_full_cohort_1h_knn/valid_behavior_policy.csv')
+    behavior_df = pd.read_csv('physician_policy/amsterdam-umc-db_v2_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv')
     behavior_action_probs = behavior_df.filter(regex='\d+').values  # assume 25 actions
 
     # Zero policy
@@ -214,7 +212,7 @@ if __name__ == '__main__':
 
     # Fit FQEs
     # Note: always use aggregated data file for training (time points in non-aggregated file will match!)
-    training_file = '../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_1h/valid.csv'
+    training_file = '../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/valid.csv'
     behavior_estimator_fqe = FittedQEvaluation(training_file).fit(behavior_action_probs)
     print('Behavior: ', np.mean(behavior_estimator_fqe.state_value(behavior_action_probs)))
 
