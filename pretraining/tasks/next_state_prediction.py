@@ -11,23 +11,24 @@ from behavior_cloning import CosineWarmupScheduler
 
 
 class EvaluationCallback:
-    def __init__(self, valid_dataloader, num_samples=10000):
+    def __init__(self, valid_dataloader, mask_missing, n_features, num_samples=10000):
         """ Callback to evaluate model intermittently on validation set during training
         :param valid_dataloader:  DataLoader object loaded with validation set
         :param num_samples:       Max number of histories to evaluate on (for debugging purposes)
         """
         self._dataloader = valid_dataloader
-        self._mse = torch.nn.MSELoss()
+        self._mse_loss = torch.nn.MSELoss()
+        self._mask_missing = mask_missing
         self._num_samples = num_samples
+        self._n_features = n_features
 
     def __call__(self, model, batch_size):
-        """
-        Evaluates model on validation set
+        """ Evaluates model on validation set
         :param model:       Pytorch regression model
         :param batch_size:  Number of states per batch
         :return:            MSE and Hubert scores on validation data
         """
-        y_pred, y_true = [], []
+        mse = []
         total_samples = 0
 
         model.eval()
@@ -38,17 +39,21 @@ class EvaluationCallback:
                 total_samples += batch_size
                 states, _, _, next_states, _, _ = self._dataloader.sample(batch_size, deterministic=True)
 
-                pred_next_state = states[:, -1] + model(states)
+                pred_next_state = model(states)
+                true_next_state = next_states[:, -1, :self._n_features]
 
-                y_pred.append(pred_next_state.detach())
-                y_true.append(next_states[:, -1])
+                # mask out missing values if any
+                if self._mask_missing:
+                    missing_mask = 1 - states[:, -1, self._n_features:]
+                    pred_next_state = pred_next_state * missing_mask
+                    true_next_state = true_next_state * missing_mask
+
+                loss = self._mse_loss(pred_next_state, true_next_state)
+                mse.append(loss.item())
         model.train()
 
-        y_pred = torch.concat(y_pred, dim=0)
-        y_true = torch.concat(y_true, dim=0)
-
         # compute mean squared error loss
-        return {'valid_mse': self._mse(y_pred, y_true).item()}
+        return {'valid_mse': np.mean(mse)}
 
 
 def fit_next_state(experiment,
@@ -56,6 +61,7 @@ def fit_next_state(experiment,
                    decoder,
                    train_data,
                    valid_data,
+                   mask_missing=True,
                    batches_per_epoch=100,
                    epochs=200,
                    warmup=25,
@@ -91,10 +97,11 @@ def fit_next_state(experiment,
 
     # Load training data into replay buffer (set to uniform sampling)
     train_dataloader = PrioritizedReplay(train_data, device=device, alpha=0, beta0=0, max_len=truncate)
+    n_features = len(train_data.filter(regex='x\d+').columns) // 2
 
     # Callback to evaluate model on valid data (set to deterministic sampling!)
     valid_dataloader = PrioritizedReplay(valid_data, device=device, max_len=truncate)
-    valid_callback = EvaluationCallback(valid_dataloader)
+    valid_callback = EvaluationCallback(valid_dataloader, mask_missing=mask_missing, n_features=n_features)
 
     for ep in range(epochs):
         losses = []
@@ -106,9 +113,14 @@ def fit_next_state(experiment,
             # sample random batch of (s, s') pairs from training data
             states, _, _, next_states, _, _ = train_dataloader.sample(batch_size)
 
-            # next state = current state + delta, i.e. predict delta = s_t+1 - s_t
-            pred_next_state = states[:, -1] + model(states)
-            true_next_state = next_states[:, -1]
+            pred_next_state = model(states)
+            true_next_state = next_states[:, -1, :n_features]
+
+            # mask out missing values if any
+            if mask_missing:
+                missing_mask = 1 - states[:, -1, n_features:]
+                pred_next_state = pred_next_state * missing_mask
+                true_next_state = true_next_state * missing_mask
 
             loss = criterion(pred_next_state, true_next_state)
             losses.append(loss.item())
