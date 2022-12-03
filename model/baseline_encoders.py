@@ -3,14 +3,15 @@ import torch.nn.functional as F
 
 
 class LastState(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels, out_channels):
         """ Returns last state in history as in (Roggeveen et al., 2021)
         """
         super(LastState, self).__init__()
         self.config = locals()
+        self._linear = torch.nn.Linear(in_channels, out_channels)
 
     def forward(self, x):
-        return x[:, -1]
+        return self._linear(x[:, -1])
 
 
 class StateConcatenation(torch.nn.Module):
@@ -59,15 +60,13 @@ class CausalConv1d(torch.nn.Module):
         return conv_x if self._include_current else conv_x[:, :, :-1]
 
 
-class CausalCNN(torch.nn.Module):
-    """
-        Implementation of a Causal Convolutional Network (`CausalCNN`) based
-        on dilated causal convolutions (implemented by `CausalConv1d`).
-        See https://arxiv.org/pdf/1609.03499v2.pdf for details.
+class TCN(torch.nn.Module):
+    """ Implementation of a Temporal Convolutional Network (`TCN`) based
+    on dilated causal convolutions (implemented by `CausalConv1d`).
+    See https://arxiv.org/pdf/1609.03499v2.pdf for details.
     """
     def __init__(self, layer_channels=(32, 64), kernel_sizes=(12,), dilations=(1,)):
-        """ Constructor of the CausalConv1D """
-        super(CausalCNN, self).__init__()
+        super(TCN, self).__init__()
         self.config = locals()
 
         # Force kernel sizes to be odd
@@ -95,7 +94,7 @@ class LSTM(torch.nn.Module):
         (Hochreiter et al., 1997) used in (Hausknecht et al., 2017).
         See https://arxiv.org/pdf/1507.06527.pdf
     """
-    def __init__(self, state_dim=46, hidden_dims=128, num_layers=1, batch_size=32):
+    def __init__(self, state_dim=46, hidden_dims=128, num_layers=1):
         super(LSTM, self).__init__()
         self.config = locals()
         self._model = torch.nn.LSTM(input_size=state_dim, hidden_size=hidden_dims, num_layers=num_layers,
