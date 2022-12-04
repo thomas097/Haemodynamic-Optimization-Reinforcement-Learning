@@ -64,7 +64,7 @@ class EvaluationReplay:
 class PrioritizedReplay:
     def __init__(self, dataset, device, alpha=0.6, beta0=0.4, eps=1e-2, max_len=512, seed=42):
         """ Implements Prioritized Experience Replay (PER) (Schaul et al., 2016)
-            for off-policy RL training from log-data.
+            for off-policy RL training from log data.
             See https://arxiv.org/pdf/1511.05952v3.pdf for details.
         """
         self._seed = seed
@@ -72,7 +72,6 @@ class PrioritizedReplay:
 
         # extract states, action and rewards from dataset
         self._dataset = dataset.reset_index(drop=True)
-        self._dataset['reward'] = self._dataset.groupby('episode').reward.transform(self._smear_reward)
         states = self._dataset.filter(regex='x\d+').values  # state space features are marked by 'x*'
         actions = self._dataset.action.values
         rewards = self._dataset.reward.values
@@ -95,11 +94,6 @@ class PrioritizedReplay:
         self._alpha = alpha  # -> 0.0 = to uniform sampling
         self._beta0 = beta0
         self._eps = eps
-
-    def _smear_reward(self, r, scale=1):
-        r_terminal = r.values[-1]
-        decay = np.exp(scale * (np.arange(len(r)) - len(r) + 1))
-        return (decay * r_terminal).astype(np.float32)
 
     def reset(self):
         """ Resets all parameters back to initial values """
@@ -140,7 +134,7 @@ class PrioritizedReplay:
         self._TD_errors[self._to_index(transitions)] = np.absolute(td_errors.cpu()).flatten()
 
     def _pad_batch_sequences(self, sequences, value=0.0):
-        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
+        arr = pad_sequences([s.numpy() for s in sequences], padding="pre", value=value, dtype=np.float32)
         return torch.tensor(arr)[:, -self._max_len:]
 
     def sample(self, N, deterministic=False):

@@ -6,8 +6,8 @@ import numpy as np
 from tqdm import tqdm
 from experience_replay import PrioritizedReplay
 from performance_tracking import PerformanceTracker
-from loss_functions import weighted_Huber_loss
-from regularization import reward_regularizer, physician_regularizer, conservative_regularizer
+from loss_functions import *
+from regularization import *
 
 
 class DuelingLayer(torch.nn.Module):
@@ -39,8 +39,8 @@ class DQN(torch.nn.Module):
         layers = []
         for i in range(len(shape) - 1):
             layers.append(torch.nn.Linear(shape[i], shape[i + 1]))
-            layers.append(torch.nn.BatchNorm1d(shape[i + 1]))
-            layers.append(torch.nn.ELU())
+            #layers.append(torch.nn.BatchNorm1d(shape[i + 1]))
+            layers.append(torch.nn.LeakyReLU())
         self._base = torch.nn.Sequential(*layers)
 
         # Q-network
@@ -51,8 +51,8 @@ class DQN(torch.nn.Module):
         self.apply(self._init_xavier_uniform)
 
         # precompute additive mask to set value of disallowed actions to -inf
-        action_mask = torch.zeros((1, num_actions))
-        action_mask[0, disallowed_actions] = -1e20
+        action_mask = torch.zeros((1, num_actions), dtype=torch.float64)
+        action_mask[0, disallowed_actions] = -1e6
         self.register_buffer('_action_mask', action_mask, persistent=True)
 
     @staticmethod
@@ -74,11 +74,11 @@ class DQN(torch.nn.Module):
             qvals = self(states)
         return qvals.cpu().detach().numpy()
 
-    def action_probs(self, states):
-        """ Return probability of actions given a state by softmax """
+    def action_probs(self, states, temp=0.5):
+        """ Return probability of actions given a state using softmax """
         states = torch.Tensor(states)
         with torch.no_grad():
-            actions = torch.softmax(self(states), dim=1)
+            actions = torch.softmax(self(states) * temp, dim=1)
         return actions.cpu().detach().numpy()
 
     def sample(self, states):
@@ -105,7 +105,7 @@ def fit_double_dqn(
         encoder,
         num_episodes=1,
         lrate=1e-3,
-        gamma=0.99,
+        gamma=0.9,
         tau=1e-2,
         replay_alpha=0.4,
         replay_beta=0.6,
@@ -154,7 +154,6 @@ def fit_double_dqn(
     target.eval()
 
     for episode in tqdm(range(num_episodes)):
-
         # sample (s, a, r, s') transition from PER
         states, actions, rewards, next_states, state_indices, weights = replay_buffer.sample(N=batch_size)
 
@@ -167,17 +166,17 @@ def fit_double_dqn(
             next_target_state_value = target(next_states)
 
             # clamp to min/max reward
-            next_target_state_value = torch.clamp(next_target_state_value, min=-min_max_reward[0], max=min_max_reward[1])
+            next_target_state_value = torch.clamp(next_target_state_value, min=min_max_reward[0], max=min_max_reward[1])
 
             # mask future reward at terminal state
             reward_mask = (rewards == 0).float()
 
             # compute target Q value
             next_model_action = torch.argmax(model(next_states), dim=1, keepdim=True)
-            q_target = rewards + gamma * reward_mask * next_target_state_value.gather(dim=1, index=next_model_action)
+            q_target = rewards + gamma * next_target_state_value.gather(dim=1, index=next_model_action) * reward_mask
 
         # loss + regularization
-        loss = weighted_Huber_loss(q_pred, q_target, weights)
+        loss = weighted_MSE_loss(q_pred, q_target, weights)
         if lambda_reward > 0:
             loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])
         if lambda_phys > 0:
@@ -206,7 +205,9 @@ def fit_double_dqn(
         ############################
 
         tracker.add(loss=loss.item())
-        tracker.add(avg_Q_value=torch.mean(q_vals[q_vals > -1e10]).item())  # Drops disallowed actions
+        tracker.add(avg_Q_value=torch.mean(q_vals[q_vals > -1e5]).item())  # Drops disallowed actions
+        tracker.add(max_Q_value=torch.mean(torch.max(q_vals, axis=1)[0]).item())
+        tracker.add(chosen_action_Q_value=torch.mean(q_pred).item())
         tracker.add(abs_TD_error=torch.mean(td_error).item())
         tracker.add(avg_imp_weight=torch.mean(weights).item())
 
