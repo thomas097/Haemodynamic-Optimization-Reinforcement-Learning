@@ -5,7 +5,7 @@ from tqdm import tqdm
 
 
 class MLP(torch.nn.Module):
-    def __init__(self, state_dims, num_actions, hidden_dims=128):
+    def __init__(self, state_dims, num_actions, hidden_dims=24):
         """ Simple Multi-Layer Perceptron for estimating the FQE Q-function
         :param state_dims:  Number of state space features
         :param num_actions: Number of actions
@@ -85,7 +85,7 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-2, horizon=24, iters=50, reward_range=(-100, 100)):
+    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-2, iters=1000, reward_range=(-100, 100)):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
         For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
         :param training_file:   Dataset used to train FQE estimator (only aggregated dataset is supported for now)
@@ -100,7 +100,6 @@ class FittedQEvaluation:
         self._estimator = MLP(self._train.state_dims, num_actions)
         self._min_reward, self._max_reward = reward_range
         self._gamma = gamma
-        self._horizon = horizon
         self._iters = iters
         self._fitted = False
 
@@ -128,35 +127,25 @@ class FittedQEvaluation:
 
         # perform policy iteration
         avg_q_vals = []
-        with tqdm(range(self._horizon * self._iters)) as pbar:
+        with tqdm(range(self._iters)) as pbar:
 
-            # we compute the H-step horizon
-            for h in range(self._horizon):
-
-                # Step 1: create dataset of states and bootstrapped targets
+            for _ in pbar:
+                # bootstrapped targets
                 with torch.no_grad():
                     exp_future_reward = self._estimator(self._train.next_states, action_probs=policy_next_action_probs)
                     q_next = self._train.rewards + self._gamma * reward_mask * exp_future_reward
                     q_next = torch.clamp(q_next, min=self._min_reward, max=self._max_reward)
 
-                # Step 2: fit model to said targets
-                for i in range(self._iters):
-                    # Q-estimate
-                    q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
+                # Q-estimate
+                q_pred = self._estimator(self._train.states, hard_actions=self._train.actions)
 
-                    # update!
-                    self._optimizer.zero_grad()
-                    self._criterion(q_pred, q_next).backward()
-                    self._optimizer.step()
+                # update!
+                self._optimizer.zero_grad()
+                self._criterion(q_pred, q_next).backward()
+                self._optimizer.step()
 
-                    # print average Q-value to screen
-                    pbar.set_postfix({
-                        'avg_q': torch.mean(q_pred).item(),
-                        'step': i
-                    })
-                    pbar.refresh()
-
-                    pbar.update(1)
+                # print average Q-value to screen
+                pbar.set_postfix({'avg_q': torch.mean(q_pred).item()})
 
         self._fitted = True
         return self

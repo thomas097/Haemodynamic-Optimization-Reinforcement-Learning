@@ -3,19 +3,17 @@ import pandas as pd
 
 
 class PHWIS:
-    def __init__(self, behavior_policy_file):
+    def __init__(self, behavior_policy_file, gamma=1.0):
         """ Implementation of Per-Horizon Weighted Importance Sampling (PHWIS) for Off-policy Evaluation (OPE)
-        of treatment policies under trajectories with variable-length horizons.
+        of treatment policies from log data with variable-length horizons.
         For details, please refer to https://www.ijcai.org/proceedings/2018/0729.pdf
-        :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') under
-                                     behavior policy, chosen actions ('action') and associated rewards ('reward').
+        :param behavior_policy_file:  Path to DataFrame containing behavior policy (columns '0'-'24'),
+                                      chosen actions ('action') and associated rewards ('reward')
         """
-        behavior_df = pd.read_csv(behavior_policy_file)
-
         # determine probability of chosen action under behavior policy
-        self._actions = behavior_df.action.values[:, np.newaxis].astype(int)
-        probs_all = behavior_df.filter(regex='\d+').values
-        probs_action = np.take_along_axis(probs_all, indices=self._actions, axis=1).flatten()
+        behavior_df = pd.read_csv(behavior_policy_file)
+        self._actions, action_probs = self._get_action_probs(behavior_df)
+        self._ess = None
 
         # determine horizon of each episode
         horizon = behavior_df.groupby('episode').size()
@@ -26,22 +24,32 @@ class PHWIS:
         # combine into DataFrame
         self._df = pd.DataFrame({
             'episode': behavior_df.episode.astype(int),
+            'action': behavior_df.action,
             'reward': behavior_df.reward,
             'timestep': timesteps,
+            'gamma': gamma ** timesteps,
             'horizon': behavior_df.episode.apply(lambda x: horizon.loc[x]),
-            'probs_b': probs_action
+            'probs_b': action_probs
         })
 
-        # keep track of effective sample size
-        self._ess = []
+
+    def _get_action_probs(self, df):
+        """ Extract action probabilities of chosen actions under behavior policy
+        """
+        actions = df.action.values[:, np.newaxis].astype(int)
+        all_probs = df.filter(regex='\d+').values
+        action_probs = np.take_along_axis(all_probs, indices=actions, axis=1).flatten()
+        return actions, action_probs
 
     @property
     def ess(self):
-        # weigh normalized importance weights by normalized horizon weight
+        """ Compute effective sample size (ESS) as 1 / sum(w_i^2) and
+        weigh episodes by the contributions of their horizons
+        """
+        # weigh importance weights by normalized horizon weight
         ess = np.array([1 / np.sum(w ** 2) for w in self._ess])
-        supp = np.array([w.shape[0] for w in self._ess])
-        supp = supp / np.sum(supp)
-        return ess.dot(supp)
+        #supp = np.array([w.shape[0] for w in self._ess])
+        return np.sum(ess)#.dot(supp / np.sum(supp))
 
     def ratios(self, pi_e, episodes=None):
         """ Returns a dataframe of cumulative importance ratios ('rho') for each timestep and episode
@@ -52,27 +60,31 @@ class PHWIS:
         # compute importance ratio of action prob for chosen action under pi_e and pi_b
         df = self._df.copy()
         df['probs_e'] = np.take_along_axis(pi_e, indices=self._actions, axis=1).flatten()
-        df['ratio'] = df['probs_e'] / df['probs_b']
+        df['ratio'] = df.probs_e / df.probs_b
+        df['ratio'] = np.clip(df.ratio ** 0.25, a_min=0.5, a_max=2)
 
         # filter episodes if episodes!=None
         if episodes is not None:
             df = df[df.episode.isin(episodes)]
 
-        # compute importance weight, `rho`, at terminal timesteps and normalize over episodes of the same length
-        df['cumprod_ratio'] = df.groupby('episode').ratio.cumprod()
-        df['rho'] = df.groupby(['horizon', 'timestep']).cumprod_ratio.apply(lambda r: self._normalize(r))
+        # compute importance weight at terminal timestep and normalize over episodes of the same length
+        df['cum_ratio'] = df.groupby('episode').ratio.cumprod()
+        df['norm_rho'] = df.groupby(['horizon', 'timestep']).cum_ratio.apply(lambda rho: self._normalize(rho))
 
-        # compute weight of horizon, `wh`, as episodes_with_horizon / all_episodes
-        df['wh'] = df.groupby('horizon').episode.transform(lambda x: x.nunique()) / df.episode.nunique()
+        # track weights at terminal state to compute sample size
+        self._ess = [w.norm_rho.values[h - 1::h] for h, w in df.groupby('horizon')]
 
-        return df[['episode', 'rho', 'wh']]
+        # compute contribution of horizon wh as '#episodes with horizon' / '#episodes'
+        n_episodes = df.episode.nunique()
+        df['wh'] = df.groupby('horizon').episode.transform(lambda x: x.nunique()) / n_episodes
+        return df
 
-    def _normalize(self, arr):
+    def _normalize(self, w):
         """ Normalizes arr while taking care of divide-by-zero """
-        total = np.sum(arr)
+        total = np.sum(w)
         if total == 0:
-            return arr * 0 + (1 / np.prod(arr.shape))  # 1 / N
-        return arr / total
+            return w * 0 + (1 / np.prod(w.shape))  # 1 / N
+        return w / total
 
     def __call__(self, pi_e, episodes=None):
         """ Computes the PHWIS estimate of V^πe
@@ -80,46 +92,13 @@ class PHWIS:
         :param episodes:  Subset of episodes to consider in estimating V^πe
         :returns:         Estimate of mean V^πe
         """
-        self._ess = []
-
-        # create DataFrame with action prob for chosen action under pi_e and pi_b
-        df = self._df.copy()
-        df['probs_e'] = np.take_along_axis(pi_e, indices=self._actions, axis=1).flatten()
-
-        # compute importance ratio
-        df['ratio'] = df['probs_e'] / df['probs_b']
-
-        # filter episodes if episodes!=None
-        if episodes is not None:
-            df = df[df.episode.isin(episodes)]
-
-        # group episodes by horizon length
-        wis, wh = [], []
-        for horizon, horizon_df in df.groupby('horizon'):
-            # compute normalized cumulative importance weights at terminal state
-            # (where reward is issued) for episodes of same length
-            ratios = horizon_df.ratio.values.reshape(-1, horizon)
-            weights = self._normalize(np.prod(ratios ** 0.25, axis=1))
-
-            # compute within-horizon WIS weight at terminal state
-            rewards = horizon_df.reward.values[horizon-1::horizon]
-            wis.append(np.sum(weights * rewards))
-
-            # weigh horizon proportional to the number of episodes with this horizon
-            n_episodes = weights.shape[0]
-            wh.append(n_episodes)
-
-            # keep track of weights to track sample size!
-            self._ess.append(weights)
-
-        # weigh WIS by horizon weights
-        norm_wh = np.array(wh) / np.sum(wh)
-        return np.array(wis).dot(norm_wh)
+        df = self.ratios(pi_e, episodes=episodes)
+        return np.sum(df.wh * df.gamma * df.norm_rho * df.reward)
 
 
 if __name__ == '__main__':
     # behavior policy
-    behavior_policy_file = 'physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_knn/test_behavior_policy.csv'
+    behavior_policy_file = 'physician_policy/amsterdam-umc-db_v2_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv'
     behavior_df = pd.read_csv(behavior_policy_file)
     behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
 
