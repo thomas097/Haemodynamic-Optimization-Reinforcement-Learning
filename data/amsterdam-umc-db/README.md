@@ -23,13 +23,21 @@ inputevents_mv_cohort.csv
 vitals_cohort.csv
 - icustay_id
 - charttime
-- vital_id: HeartRate, SpO2, TempC, DiasBP, MeanBP, SysBP, Glucose, RespRate
+- vital_id: HeartRate, SpO2, TempC, DiasBP, MeanBP, SysBP, Glucose, RespRate, SvO2, CVP
 - valuenum
+
+vitals_cohort.csv
+- icustay_id
+- starttime
+- endtime
+- sepsis_antibiotics (are antibiotics prescribed commonly used to combat sepsis?)
+- profyl_antibiotics (profylactic administration of antibiotics)
+- profyl_other (anticoagulatants?)
 
 labs_cohort.csv
 - icustay_id
 - charttime
-- lab_id: ALAT, ANION GAP, ASAT, BICARBONATE, BILIRUBIN, BUN, CALCIUM, CHLORIDE, CREATININE, GLUCOSE, HEMOGLOBIN, MAGNESIUM, PLATELET, POTASSIUM, SODIUM, WBC, PT, PTT, BaseExcess, LACTATE, PACO2, PAO2, PH, ALBUMIN, BANDS, ION_CALCIUM	
+- lab_id: ALAT, ANION GAP, ASAT, BICARBONATE, BILIRUBIN, BUN, CALCIUM, CHLORIDE, CREATININE, GLUCOSE, HEMOGLOBIN, MAGNESIUM, PLATELET, POTASSIUM, SODIUM, WBC, PT, PTT, BaseExcess, LACTATE, PACO2, PAO2, PH, ALBUMIN, BANDS, ION_CALCIUM, HEMATOCRIT, D-Dimer
 - valuenum
 
 urineoutput_cohort.csv
@@ -51,3 +59,5 @@ demographics_cohort.csv
 - vent
 - sofa (on admission)
 - sirs (on admission)
+- is_sepsis (admitted with sepsis diagnosis)
+- is_elective (elective admissions after surgery)
