@@ -27,12 +27,11 @@ def load_pretrained(path):
     return model
 
 
-def get_action_probs(policy, dataset_file, batch_size, temp):
+def get_action_probs(policy, dataset_file, batch_size=256):
     """ Obtains action probabilities for each history in dataset
     :param policy:      A trained policy network
     :param dataset:     Dataset with variable-length patient trajectories
     :param batch_size:  Number of histories to process at once
-    :param temp:        Temperature of softmax to make policy less greedy
     :returns:           Tensor of shape (n_states, n_actions)
     """
     # load dataset into replay buffer
@@ -46,7 +45,7 @@ def get_action_probs(policy, dataset_file, batch_size, temp):
             for histories in replay.iterate(batch_size):
                 # histories -> encoder -> policy network + softmax
                 qvals = policy(histories)
-                probs = torch.softmax(qvals / temp, dim=1).cpu().detach().numpy()
+                probs = torch.softmax(qvals, dim=1).cpu().detach().numpy()
                 action_probs.append(probs)
                 pbar.update(histories.size(0))
 
@@ -66,8 +65,8 @@ def conf_interval(scores, conf_level):
     return '%.3f [%.3f / %.3f]' % (median, lower, upper)
 
 
-def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=256, lrate=1e-2, iters=100,
-                    n_bootstraps=10, fraction=0.8, temp=50, conf_level=0.95):
+def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=256, lrate=1e-2, iters=15000,
+                    n_bootstraps=100, fraction=0.8, conf_level=0.95):
     """ Computes WIS, FQE and WDR estimates of policy performance
     :param policy_file:           File pointing to a trained policy network. If policy_file == behavior_policy_file,
                                   then the estimated behavior policy is evaluated.
@@ -79,13 +78,11 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     :param iters:                 Number of training iterations used to estimate WDR's FQE estimator
     :param n_bootstraps:          Number of bootstrap sets to sample to estimate confidence bounds (default: 100)
     :param fraction:              Fraction of episodes to construct each bootstrap set (default: 0.8)
-    :param temp:                  Temperature of the softmax to make action probabilities under policy less greedy
     :param conf_level:            Confidence level (default: 0.95)
     """
     # get policy's action probs for states in dataset
     if policy_file != behavior_policy_file:
-        action_probs = get_action_probs(policy=load_pretrained(policy_file), dataset_file=dataset_file,
-                                        batch_size=batch_size, temp=temp)
+        action_probs = get_action_probs(policy=load_pretrained(policy_file), dataset_file=dataset_file, batch_size=batch_size)
     else:
         print('Evaluating physician policy...')
         action_probs = pd.read_csv(behavior_policy_file).filter(regex='\d+').values
@@ -95,7 +92,8 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     wdr.fit(action_probs)
 
     # list episodes from which to bootstrap
-    episodes = pd.read_csv(dataset_file).episode.unique().tolist()
+    dataset = pd.read_csv(dataset_file)
+    episodes = dataset.episode.unique().tolist()
     print('Total number of episodes:', len(episodes))
 
     phwis_scores = []
@@ -113,8 +111,10 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
         wdr_score = wdr(action_probs, episodes=bootstrap_set)
         fqe_score = wdr.dm.state_value(action_probs, episodes=bootstrap_set)
 
-        # TODO: limit fqe to first states only
-        fqe_score = np.mean(fqe_score)
+        # Limit fqe to starting states only
+        bootstrap_dataset = dataset[dataset.episode.isin(bootstrap_set)].copy().reset_index(drop=True)
+        first_state_idx = [ep.index[0] for _, ep in bootstrap_dataset.groupby('episode')]
+        fqe_score = np.mean(fqe_score[first_state_idx])
 
         phwis_scores.append(phwis_score)
         wdr_scores.append(wdr_score)
@@ -124,19 +124,32 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     # show results in stdout
     result = pd.DataFrame({
         'PHWIS': [conf_interval(phwis_scores, conf_level=conf_level)],
-        'WDR': [conf_interval(wdr_scores, conf_level=conf_level)],
+        'PHWDR': [conf_interval(wdr_scores, conf_level=conf_level)],
         'FQE': [conf_interval(fqe_scores, conf_level=conf_level)],
         'ESS': [np.median(sample_sizes)]
     }, index=[''])
     print(result)
 
 
+def save_tail(path, fname, maxlen=10):
+    df = pd.read_csv(path)
+    df = df.groupby('episode', as_index=False).tail(maxlen)
+    df.to_csv(fname, index=False)
+    return fname
+
+
 if __name__ == '__main__':
+    # Truncate episodes to fix degeneracy problem
+    save_tail('../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/valid.csv',
+              'valid_tmp.csv', maxlen=12)
+    save_tail('../../ope/physician_policy/amsterdam-umc-db_v2_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv',
+              'behavior_policy_tmp.csv', maxlen=12)
+
     evaluate_policy(
-        policy_file='../results/ckcnn_experiment_00000/model.pt', # encoder + policy
-        dataset_file='../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/valid.csv',
-        behavior_policy_file='../../ope/physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_knn/valid_behavior_policy.csv',
-        iters=1500,
+        policy_file='../results/pretrained_transformer_experiment_00000/model.pt',
+        dataset_file='valid_tmp.csv',
+        behavior_policy_file='behavior_policy_tmp.csv',
+        lrate=1e-3,
         n_bootstraps=200,
         fraction=0.8,
     )

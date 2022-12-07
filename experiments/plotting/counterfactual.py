@@ -86,8 +86,9 @@ def plot_counterfactual(model, dataset, num_trajectories, min_trajectory_size, w
 
     ### IV fluids
     ax = plt.subplot(1, 2, 1)
-    for _, trajectory in trajectories.groupby('episode', observed=True):
-        ax.plot(trajectory.timestep, trajectory[what[0]], 'r-', alpha=0.2)
+    for _, trajectory in trajectories.groupby('episode', observed=True, sort=False):
+        ax.plot(trajectory.timestep, trajectory[what[0]], 'r-', alpha=0.6)
+        break
     ax.set_xlabel('Time step')
     ax.set_ylabel('Feature value')
 
@@ -100,8 +101,9 @@ def plot_counterfactual(model, dataset, num_trajectories, min_trajectory_size, w
 
     ### Vasopressors
     ax3 = plt.subplot(1, 2, 2)
-    for _, trajectory in trajectories.groupby('episode', observed=True):
-        ax3.plot(trajectory.timestep, trajectory[what[0]], 'r-', alpha=0.2)
+    for _, trajectory in trajectories.groupby('episode', observed=True, sort=False):
+        ax3.plot(trajectory.timestep, trajectory[what[0]], 'r-', alpha=0.6)
+        break
     ax3.set_xlabel('Time step')
     ax3.set_ylabel('Feature value')
 
@@ -117,19 +119,19 @@ def plot_counterfactual(model, dataset, num_trajectories, min_trajectory_size, w
 
 
 if __name__ == '__main__':
-    model = load_pretrained("../results/last_state_experiment_00000/model.pt")
-    dataset = load_data("../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_2h/test.csv", add_missingness=True)
+    model = load_pretrained("../results/transformer_nsp_experiment_00001/model.pt")
+    dataset = load_data("../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/test.csv")
 
-    features = load_txt("../../preprocessing/datasets/mimic-iii/aggregated_full_cohort_2h/state_space_features.txt")
+    features = load_txt("../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/state_space_features.txt")
 
     plot_counterfactual(
         model=model,
         dataset=dataset,
         num_trajectories=2000,
-        min_trajectory_size=24,
+        min_trajectory_size=20,
         # how and what to manipulate?
         what=['x%d' % features.index(x) for x in ['mean_bp', 'sys_bp', 'dias_bp']],
-        when=6,
-        how=(-5, -5, -5),
-        smoothness=1,
+        when=10,
+        how=(-2, -2, -2),
+        smoothness=0.2,
     )

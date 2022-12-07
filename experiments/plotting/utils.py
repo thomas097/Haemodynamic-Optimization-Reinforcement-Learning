@@ -60,7 +60,7 @@ def run_encoder_over_dataset(encoder, dataset):
     return torch.concat([encoder(t).detach() for t in replay.iterate()]).detach().numpy()
 
 
-def load_data(path, add_missingness=False):
+def load_data(path):
     """ Utility function to load in dataset with minimal memory footprint """
     # Load dataset and cast to efficient datatypes
     df = pd.read_csv(path)

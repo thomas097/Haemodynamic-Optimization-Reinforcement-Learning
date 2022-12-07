@@ -107,10 +107,10 @@ def plot_action_matrices(matrices, labels):
 
 
 if __name__ == '__main__':
-    encoder = load_pretrained('../results/transformer_experiment_00000/encoder.pt')
-    policy = load_pretrained('../results/transformer_experiment_00000/policy.pt')
-    dataset = load_csv('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv')
-    bin_file = load_pickle('../../preprocessing/datasets/mimic-iii/aggregated_all_1h/action_to_vaso_fluid_bins.pkl')
+    encoder = load_pretrained('../results/last_state_experiment_00006/encoder.pt')
+    policy = load_pretrained('../results/last_state_experiment_00006/policy.pt')
+    dataset = load_csv('../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/valid.csv')
+    bin_file = load_pickle('../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/action_to_vaso_fluid_bins.pkl')
 
     # physician
     phys_action_matrix = matrix_from_actions(dataset.action, bin_file=bin_file)
@@ -127,5 +127,5 @@ if __name__ == '__main__':
     # plot!
     plot_action_matrices(
         matrices=[phys_action_matrix, policy_action_matrix],
-        labels=['Physician', 'Transformer (CKCNN idem)']
+        labels=['Physician', 'Last state']
     )

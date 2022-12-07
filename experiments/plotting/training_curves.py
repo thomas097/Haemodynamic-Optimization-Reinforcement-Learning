@@ -32,13 +32,14 @@ def main(in_dir, paths, metric, smooth_over_episodes=500):
         num_episodes = get_num_episodes(full_path)
         episode = np.linspace(0, num_episodes, scores.shape[0])
 
-        plt.plot(episode, scores, color=COLORS[i], label=name, linewidth=1, alpha=0.5)
-
-        # Optionally, smooth scores using box-kernel of x-episodes
+        # Smooth scores using box-kernel of x-episodes
         if smooth_over_episodes and len(scores) > 100:
             kernel_size = int(smooth_over_episodes * scores.shape[0] / num_episodes)
             smoothed_scores = uniform_filter1d(scores, kernel_size, mode='nearest')
             plt.plot(episode, smoothed_scores, color=COLORS[i], linewidth=1.7)
+            plt.plot(episode, scores, color=COLORS[i], label=name, linewidth=1, alpha=0.25)
+        else:
+            plt.plot(episode, scores, color=COLORS[i], label=name)
 
     plt.legend()
     plt.ylabel(metric)
@@ -47,11 +48,12 @@ def main(in_dir, paths, metric, smooth_over_episodes=500):
 
 
 if __name__ == '__main__':
-    paths = {'CKCNN': 'ckcnn_experiment_00000',}
+    paths = {'Last state': 'last_state_experiment_00001',
+             'Transformer (pretrained - NSP)': 'pretrained_transformer_experiment_00000'}
 
-    metrics = ['loss', 'phwis', 'ess', 'avg_Q_value', 'physician_entropy']
+    metrics = ['loss', 'avg_Q_value', 'max_Q_value', 'chosen_action_Q_value']
     in_dir = '../results/'
 
     for metric in metrics:
-        main(in_dir, paths, metric, smooth_over_episodes=1000)
+        main(in_dir, paths, metric, smooth_over_episodes=300)
 

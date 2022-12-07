@@ -75,7 +75,7 @@ def plot_confusion_matrix(model, dataset_file, maxlen, batch_size):
 
 
 if __name__ == '__main__':
-    model = load_pretrained("../results/last_state_experiment_supervised_00000/model.pt")
+    model = load_pretrained("../results/last_state_experiment_00007/model.pt")
     dataset_file = "../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/test.csv"
 
     plot_confusion_matrix(
