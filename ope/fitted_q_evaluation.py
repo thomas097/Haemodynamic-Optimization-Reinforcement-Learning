@@ -16,6 +16,8 @@ class MLP(torch.nn.Module):
         self._estimator = torch.nn.Sequential(
             torch.nn.Linear(state_dims, hidden_dims),
             torch.nn.LeakyReLU(),
+            torch.nn.Linear(hidden_dims, hidden_dims),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(hidden_dims, num_actions)
         )
 
@@ -51,13 +53,9 @@ class FQEDataset:
         self._unpack_(training_file)
 
     def _unpack_(self, training_file):
-        # Add ETA to terminal state as feature
-        df = pd.read_csv(training_file).reset_index(drop=True)
-        H = df.groupby('episode').size().max()
-        df['h'] = df.groupby('episode').timestep.transform(lambda ep: (H - np.arange(len(ep))[::-1]) / H)
-
         # Unpack training_file file into states, actions, etc.
-        all_states = df.filter(regex='x\d+|h').values
+        df = pd.read_csv(training_file).reset_index(drop=True)
+        all_states = df.filter(regex='x\d+').values
         all_actions = df.action.values
         all_rewards = df.reward.values
 
@@ -85,7 +83,7 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-2, iters=1000, reward_range=(-100, 100)):
+    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-1, iters=1000, reward_range=(-100, 100)):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
         For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
         :param training_file:   Dataset used to train FQE estimator (only aggregated dataset is supported for now)
@@ -120,7 +118,7 @@ class FittedQEvaluation:
         policy_next_action_probs = torch.Tensor(policy_next_action_probs)
 
         # sanity check: same number of states?
-        assert policy_next_action_probs.shape[0] == self._train.states.shape[0]
+        assert policy_next_action_probs.shape[0] == self._train.next_states.shape[0]
 
         # define mask to mask out expected reward at next state in terminal states
         reward_mask = (self._train.rewards == 0).float()
@@ -151,7 +149,7 @@ class FittedQEvaluation:
         return self
 
     def _limit_episodes(self, arr, episodes=None):
-        """ Convenience function to limit episodes in arr to a subset """
+        """ Convenience function to limit episodes in arr to just a subset """
         if episodes is not None:
             return arr[self._train.episodes.isin(episodes)]
         else:
@@ -166,7 +164,7 @@ class FittedQEvaluation:
         if not self._fitted:
             raise Exception('Estimator has not been fitted; Call fit().')
 
-        # limit states to episodes (if specified)
+        # limit states to specific episodes (if specified)
         states = self._limit_episodes(self._train.all_states, episodes=episodes)
         probs = self._limit_episodes(torch.Tensor(pi_e), episodes=episodes)
 
@@ -179,7 +177,7 @@ class FittedQEvaluation:
         if not self._fitted:
             raise Exception('Estimator has not been fitted; Call fit().')
 
-        # limit states to episodes (if specified)
+        # limit states to specific episodes (if specified)
         states = self._limit_episodes(self._train.all_states, episodes=episodes)
 
         return self._estimator(states).detach().numpy()
@@ -187,7 +185,7 @@ class FittedQEvaluation:
 
 if __name__ == '__main__':
     # Behavior policy
-    behavior_df = pd.read_csv('physician_policy/amsterdam-umc-db_v2_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv')
+    behavior_df = pd.read_csv('physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv')
     behavior_action_probs = behavior_df.filter(regex='\d+').values  # assume 25 actions
 
     # Zero policy
@@ -201,14 +199,14 @@ if __name__ == '__main__':
 
     # Fit FQEs
     # Note: always use aggregated data file for training (time points in non-aggregated file will match!)
-    training_file = '../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/valid.csv'
-    behavior_estimator_fqe = FittedQEvaluation(training_file).fit(behavior_action_probs)
+    training_file = '../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv'
+    behavior_estimator_fqe = FittedQEvaluation(training_file, gamma=0.95).fit(behavior_action_probs)
     print('Behavior: ', np.mean(behavior_estimator_fqe.state_value(behavior_action_probs)))
 
-    zerodrug_estimator_fqe = FittedQEvaluation(training_file).fit(zerodrug_action_probs)
+    zerodrug_estimator_fqe = FittedQEvaluation(training_file, gamma=0.95).fit(zerodrug_action_probs)
     print('Zero-drug:', np.mean(zerodrug_estimator_fqe.state_value(zerodrug_action_probs)))
 
-    random_estimator_fqe = FittedQEvaluation(training_file).fit(random_action_probs)
+    random_estimator_fqe = FittedQEvaluation(training_file, gamma=0.95).fit(random_action_probs)
     print('Random:   ', np.mean(random_estimator_fqe.state_value(random_action_probs)))
 
 

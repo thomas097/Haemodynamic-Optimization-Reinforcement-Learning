@@ -28,18 +28,17 @@ class PHWIS:
             'reward': behavior_df.reward,
             'timestep': timesteps,
             'gamma': gamma ** timesteps,
-            'horizon': behavior_df.episode.apply(lambda x: horizon.loc[x]),
+            'horizon': behavior_df.episode.apply(lambda ep: horizon.loc[ep]),
             'probs_b': action_probs
         })
 
-
     def _get_action_probs(self, df):
-        """ Extract action probabilities of chosen actions under behavior policy
+        """ Extract chosen actions and associated probabilities of behavior policy
         """
         actions = df.action.values[:, np.newaxis].astype(int)
-        all_probs = df.filter(regex='\d+').values
-        action_probs = np.take_along_axis(all_probs, indices=actions, axis=1).flatten()
-        return actions, action_probs
+        action_probs = df.filter(regex='\d+').values
+        chosen_action_probs = np.take_along_axis(action_probs, indices=actions, axis=1).flatten()
+        return actions, chosen_action_probs
 
     @property
     def ess(self):
@@ -52,8 +51,8 @@ class PHWIS:
         return np.sum(ess)#.dot(supp / np.sum(supp))
 
     def ratios(self, pi_e, episodes=None):
-        """ Returns a dataframe of cumulative importance ratios ('rho') for each timestep and episode
-        :param pi_e:      Table of action probs acc. to πe with shape (num_states, num_actions)
+        """ Returns a DataFrame of cumulative importance ratios ('rho') for each timestep and episode
+        :param pi_e:      Table of action probs under πe with shape (num_states, num_actions)
         :param episodes:  Subset of episodes to consider in estimating V^πe
         :returns:         DataFrame with importance ratios and horizon weights
         """
@@ -61,15 +60,15 @@ class PHWIS:
         df = self._df.copy()
         df['probs_e'] = np.take_along_axis(pi_e, indices=self._actions, axis=1).flatten()
         df['ratio'] = df.probs_e / df.probs_b
-        df['ratio'] = np.clip(df.ratio ** 0.25, a_min=0.5, a_max=2)
+        df['ratio'] = np.clip(df.ratio ** 0.25, a_min=0.5, a_max=2) # non-lin OPE
 
-        # filter episodes if episodes!=None
+        # filter episodes (optional))
         if episodes is not None:
             df = df[df.episode.isin(episodes)]
 
-        # compute importance weight at terminal timestep and normalize over episodes of the same length
-        df['cum_ratio'] = df.groupby('episode').ratio.cumprod()
-        df['norm_rho'] = df.groupby(['horizon', 'timestep']).cum_ratio.apply(lambda rho: self._normalize(rho))
+        # compute importance weight at each timestep and normalize over episodes of the same length
+        df['rho'] = df.groupby('episode').ratio.cumprod()
+        df['norm_rho'] = df.groupby(['horizon', 'timestep']).rho.apply(lambda rho: self._normalize(rho))
 
         # track weights at terminal state to compute sample size
         self._ess = [w.norm_rho.values[h - 1::h] for h, w in df.groupby('horizon')]
@@ -79,12 +78,12 @@ class PHWIS:
         df['wh'] = df.groupby('horizon').episode.transform(lambda x: x.nunique()) / n_episodes
         return df
 
-    def _normalize(self, w):
-        """ Normalizes arr while taking care of divide-by-zero """
-        total = np.sum(w)
+    def _normalize(self, ratios):
+        """ Normalizes ratios """
+        total = np.sum(ratios)
         if total == 0:
-            return w * 0 + (1 / np.prod(w.shape))  # 1 / N
-        return w / total
+            return np.full(shape=ratios.shape, fill_value=1 / ratios.shape[0])
+        return ratios / total
 
     def __call__(self, pi_e, episodes=None):
         """ Computes the PHWIS estimate of V^πe
@@ -93,12 +92,14 @@ class PHWIS:
         :returns:         Estimate of mean V^πe
         """
         df = self.ratios(pi_e, episodes=episodes)
-        return np.sum(df.wh * df.gamma * df.norm_rho * df.reward)
+        return (df.wh * df.gamma * df.norm_rho * df.reward).sum()
 
 
 if __name__ == '__main__':
+    ## Step 0: Policies
+
     # behavior policy
-    behavior_policy_file = 'physician_policy/amsterdam-umc-db_v2_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv'
+    behavior_policy_file = 'physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv'
     behavior_df = pd.read_csv(behavior_policy_file)
     behavior_policy = behavior_df.filter(regex='\d+').values  # -> 25 actions marked by integers 0 to 24!
 
@@ -112,7 +113,9 @@ if __name__ == '__main__':
     random_policy = np.random.uniform(0, 1, behavior_policy.shape)  # Noise
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
 
-    estimator = PHWIS(behavior_policy_file)
+    ## Step 1: Estimate performance
+
+    estimator = PHWIS(behavior_policy_file, gamma=0.95)
     print('PHWIS:')
     behavior_phwis = estimator(behavior_policy)
     print('Behavior policy: %.3f (%.2f)' % (behavior_phwis, estimator.ess))
@@ -123,11 +126,12 @@ if __name__ == '__main__':
     random_phwis = estimator(random_policy)
     print('Random policy: %.3f (%.2f)' % (random_phwis, estimator.ess))
 
-    # Sanity unbiased w.r.t. behavior policy?
-    rewards = behavior_df.reward.values
-    exp_reward = np.mean(rewards[rewards != 0])
-    print('\nTrue reward behavior policy:', exp_reward)
-    print('Support:', behavior_df.episode.nunique())
+    # Sanity check: what return do we expect from the behavior policy?
+    behavior_policy = pd.read_csv(behavior_policy_file)
+    behavior_policy['gamma'] = behavior_policy.groupby('episode').reward.transform(lambda x: 0.95 ** np.arange(len(x)))
+    behavior_policy['discounted_reward'] = behavior_policy.gamma * behavior_policy.reward
+    expected_return = behavior_policy.groupby('episode').discounted_reward.sum().mean()
+    print('\nExpected return:', expected_return)
 
 
     

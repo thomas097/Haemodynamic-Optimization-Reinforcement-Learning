@@ -3,12 +3,12 @@ import pandas as pd
 
 
 class IS:
-    def __init__(self, behavior_policy_file, gamma=1.0, bootstraps=0, conf=0.95):
+    def __init__(self, behavior_policy_file, gamma=0.9, bootstraps=0, conf=0.95):
         """ Implementation of Stepwise Importance Sampling (IS) for Off-policy Policy Evaluation (OPE).
         Optionally the method uses a non-parametric bootstrap to obtain a confidence bound on the estimate.
-        Please refer to https://arxiv.org/pdf/1807.01066.pdf for details.
+        Please refer to https://arxiv.org/pdf/1807.01066.pdf for details
         :param behavior_policy_file: Path to DataFrame containing action probabilities (columns '0'-'24') for
-                                     behavior policy, chosen actions ('action') and associated rewards ('reward').
+                                     behavior policy, chosen actions ('action') and associated rewards ('reward')
         :param gamma:                Discount factor (default: 1.0)
         :param bootstraps:           How many bootstrap sets to use to estimate confidence bounds (default: 0; disabled)
         :param conf:                 Confidence level (CL) of the bootstrap estimate (default: CL 95%)
