@@ -3,7 +3,8 @@ from transformer_layers import TransformerEncoderLayer
 
 
 class Transformer(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, d_model=64, d_key=32, n_blocks=2, n_heads=2, padding_value=0, causal=True):
+    def __init__(self, in_channels, out_channels, d_model=64, d_key=24, n_blocks=2, n_heads=2, padding_value=0,
+                 max_steps=12, causal=False):
         """ Transformer (Vaswani et al., 2017) with Causal Self-Attention
         :param in_channels:      Number of input channels
         :param out_channels:     Number of output channels
@@ -12,15 +13,14 @@ class Transformer(torch.nn.Module):
         :param n_blocks:         Num encoder blocks (default: 2)
         :param n_heads:          Num self-attention heads per block (default: 2)
         :param padding_value:    Vocab entry reserved for padding (default: 0)
+        :param max_steps:        Maximum number of relative time steps to consider in attention computation
         :param causal:           Whether to mask future positions in attention calculation
         """
         super(Transformer, self).__init__()
         self.config = locals()
         self._padding_value = padding_value
+        self._max_steps = max_steps
         self._causal = causal
-
-        # Learn maxlen parameter over training
-        self.register_buffer('_maxlen', torch.tensor(1), persistent=True)
 
         # Input encoding network
         self._input_encoding = torch.nn.Linear(in_channels, d_model)
@@ -54,9 +54,14 @@ class Transformer(torch.nn.Module):
         :param n_timesteps:  Number of time steps in sequence
         :returns:            FloatTensor of shape (batch_size, 1, num_timesteps, num_timesteps)
         """
+        # create signed distance matrix
         n_timesteps = x.size(1)
-        t = torch.arange(n_timesteps).unsqueeze(0).unsqueeze(2).float().to(x.device) / self._maxlen
-        return (t.permute(0, 2, 1) - t).unsqueeze(1).detach()
+        timesteps = torch.arange(n_timesteps).unsqueeze(0).unsqueeze(2).float().to(x.device)
+        dists = (timesteps.permute(0, 2, 1) - timesteps).unsqueeze(1)
+
+        # limit distances between -max_steps and max_steps to (-1, 1)
+        dists = torch.clamp(dists, min=-self._max_steps, max=self._max_steps) / self._max_steps
+        return dists.detach()
 
     def _padding_mask(self, x):
         """ Constructs padding mask from all zero entries in x
@@ -73,17 +78,15 @@ class Transformer(torch.nn.Module):
         :return:             Tensor of shape (batch_size, num_timesteps, out_channels)
                              or (batch_size, out_channels) when `return_last=True`
         """
-        if self.training:
-            self._maxlen = torch.maximum(self._maxlen, torch.tensor(x.size(1)))
-
-        # Create combined causal/padding mask
+        # combined causal/padding mask
         src_mask = self._padding_mask(x)
         if self._causal:
             src_mask = torch.logical_or(src_mask, self._causal_mask(x)).to(x.device)
 
-        # Compute RPE distances
+        # distances for RPE
         rel_dist = self._distance_matrix(x).to(x.device)
 
+        # forward pass
         y = self._input_encoding(x)
         for layer in self._encoder_layers:
             y = layer(y, src_mask=src_mask, rel_dists=rel_dist)

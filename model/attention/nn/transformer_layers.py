@@ -24,8 +24,8 @@ class TransformerEncoderLayer(torch.nn.Module):
         self.feedforward = torch.nn.Linear(d_model, d_model)
         self.layer_norm1 = torch.nn.LayerNorm(d_model)
         self.layer_norm2 = torch.nn.LayerNorm(d_model)
-        self.dropout1 = torch.nn.Dropout(p=dropout)
-        self.dropout2 = torch.nn.Dropout(p=dropout)
+        # self.dropout1 = torch.nn.Dropout(p=dropout)
+        # self.dropout2 = torch.nn.Dropout(p=dropout)
         self.leaky_relu = torch.nn.LeakyReLU()
 
     def forward(self, x, src_mask, rel_dists):
@@ -38,11 +38,12 @@ class TransformerEncoderLayer(torch.nn.Module):
         """
         # Self-attention + residual connections
         x_attn = self.self_attn(x, src_mask=src_mask, rel_dists=rel_dists)
-        z = self.dropout1(self.layer_norm1(x + x_attn))
+        z = self.layer_norm1(x + x_attn)#self.dropout1(...)
 
         # Feed forward + residual connections
         z_ff = self.leaky_relu(self.feedforward(z))
-        return self.dropout2(self.layer_norm2(z + z_ff))
+        return self.layer_norm2(z + z_ff)
+        #return self.dropout2(self.layer_norm2(z + z_ff))
 
 
 class MultiHeadSelfAttention(torch.nn.Module):
@@ -107,15 +108,8 @@ class SelfAttention(torch.nn.Module):
         self._V = torch.nn.Linear(d_model, d_val, bias=False)
         self._pos_encoding = RelativePositionalEncoding()
 
-    @staticmethod
-    def _softmax(x):
-        """ Numerically stable implementation of softmax which takes care
-        of divide-by-zero caused by padding tokens
-        :param x:  Attention matrix with shape (batch_size, num_timesteps, num_timesteps)
-        :return:   Normalized attention matrix
-        """
-        z = torch.exp(x)
-        return z / (torch.sum(z, dim=2, keepdim=True) + 1e-8)
+        sqrt_dk = torch.tensor(1 / math.sqrt(d_key))
+        self.register_buffer('_sqrt_dk', sqrt_dk, persistent=True)
 
     def forward(self, x, src_mask, rel_dists):
         """ Forward pass through Self-Attention layer
@@ -124,16 +118,20 @@ class SelfAttention(torch.nn.Module):
         :param rel_dists:   Distance tensor of shape (batch_size, n_timesteps, n_timesteps)
         :return:            Tensor of shape (batch_size, n_timesteps, d_model)
         """
-        q = F.normalize(self._Q(x), p=2.0, dim=2)
-        k = F.normalize(self._K(x), p=2.0, dim=2)
-        v = self._V(x)
-        attn_logits = torch.matmul(q, torch.transpose(k, 1, 2))
+        q = self._Q(x)
+        k = self._K(x)
+        attn_logits = torch.matmul(q, torch.transpose(k, 1, 2)) * self._sqrt_dk
 
-        # Relative positional encoding
+        # relative positional encoding
         attn_logits = attn_logits - self._pos_encoding(rel_dists)
 
-        # `src_mask` can be used to mask out future positions and padding
         if src_mask is not None:
-            attn_logits = attn_logits.masked_fill(mask=src_mask, value=-1e15)
+            attn_logits = attn_logits.masked_fill(mask=src_mask, value=-1e9)
 
-        return torch.bmm(self._softmax(attn_logits), v)
+        # bugfix: if rows are all -inf as a result of combined padding/causal masking,
+        # softmax will underflow causing divide-by-zero, so we add one to prevent this
+        # with torch.no_grad():
+        #     fix_mask = torch.all(attn_logits < -1e7, dim=2, keepdim=True)
+        # attn_logits = attn_logits.masked_fill(mask=fix_mask, value=1.0)
+
+        return torch.bmm(torch.softmax(attn_logits, dim=2), self._V(x))
