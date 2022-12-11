@@ -66,7 +66,7 @@ def conf_interval(scores, conf_level):
 
 
 def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=256, lrate=1e-2, iters=15000,
-                    n_bootstraps=100, fraction=0.8, conf_level=0.95):
+                    gamma=1.0, n_bootstraps=100, fraction=0.8, conf_level=0.95):
     """ Computes WIS, FQE and WDR estimates of policy performance
     :param policy_file:           File pointing to a trained policy network. If policy_file == behavior_policy_file,
                                   then the estimated behavior policy is evaluated.
@@ -88,7 +88,8 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
         action_probs = pd.read_csv(behavior_policy_file).filter(regex='\d+').values
 
     # fit WDR's FQE estimator to policy
-    wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file=dataset_file, method='fqe', lrate=lrate, iters=iters)
+    wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file=dataset_file, method='fqe', lrate=lrate,
+                               gamma=gamma, iters=iters)
     wdr.fit(action_probs)
 
     # list episodes from which to bootstrap
@@ -140,16 +141,18 @@ def save_tail(path, fname, maxlen=10):
 
 if __name__ == '__main__':
     # Truncate episodes to fix degeneracy problem
-    save_tail('../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/valid.csv',
-              'valid_tmp.csv', maxlen=12)
-    save_tail('../../ope/physician_policy/amsterdam-umc-db_v2_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv',
-              'behavior_policy_tmp.csv', maxlen=12)
+    save_tail('../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv',
+              'valid_tmp.csv', maxlen=24)
+    save_tail('../../ope/physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv',
+              'behavior_policy_tmp.csv', maxlen=24)
 
     evaluate_policy(
-        policy_file='../results/pretrained_transformer_experiment_00000/model.pt',
+        policy_file='../results/last_state_experiment_00001/model.pt',
         dataset_file='valid_tmp.csv',
         behavior_policy_file='behavior_policy_tmp.csv',
-        lrate=1e-3,
-        n_bootstraps=200,
-        fraction=0.8,
+        lrate=0.1,
+        iters=2000,
+        gamma=0.95,
+        n_bootstraps=100,
+        fraction=0.9,
     )

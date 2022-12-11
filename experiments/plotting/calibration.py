@@ -1,76 +1,78 @@
+import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-
-from utils import *
-
-sns.set_theme(style="darkgrid")
+from tqdm import tqdm
+from experience_replay import EvaluationReplay
+from utils import load_data, load_txt, load_pretrained
 
 
-def get_terminal_reward(rewards):
-    all_rewards = rewards.fillna(0.0)
-    terminal_reward = all_rewards[all_rewards != 0].sum()  # Drop zero/NaN rewards
-    return rewards * 0 + terminal_reward                   # Set all non-NaN rewards to terminal reward
+def select_episodes(df, length):
+    episodes = []
+    for _, episode_df in df.groupby('episode'):
+        if len(episode_df) >= length:
+            episodes.append(episode_df.head(length))
+    return pd.concat(episodes, axis=0)
 
 
-def qvals_against_survival_rate(qvals, survival, bins=25):
-    # Group Q-values into bins of equal size
-    bin_edges = np.quantile(qvals.flatten(), q=np.linspace(0, 1, bins + 1))
-    labels = [(bin_edges[i] + bin_edges[i + 1]) / 2 for i in range(bins)]  # Center of bin to label groups
-    qvals = pd.cut(qvals.flatten(), bins=bin_edges, labels=labels)
+def get_q_values(policy, dataset, batch_size=32):
+    """ Obtains actions for each history in dataset from policy
+    :param policy:      A trained policy network
+    :param dataset:     DataFrame with variable-length patient trajectories
+    :param batch_size:  Number of histories to process at once
+    :returns:           Tensor of shape (n_states, n_actions)
+    """
+    # load dataset into replay buffer
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    replay = EvaluationReplay(dataset=dataset.copy(), device=device)
 
-    # For each bin, compute survival rate
-    survival_rates = [np.mean(survival[qvals == l]) for l in labels]
-    return labels, survival_rates
+    with torch.no_grad():
+        q_values = []
+        with tqdm(total=len(dataset), desc='Evaluating model', position=0, leave=True) as pbar:
+            for states, actions in replay.iterate(batch_size, return_actions=True):
+                policy_q_values = policy(states)
+                actions = actions.unsqueeze(1)
+                q_value = torch.take_along_dim(policy_q_values, indices=actions, dim=1).cpu().detach().numpy()
+                q_values.append(q_value)
+                pbar.update(states.size(0))
+
+    return np.concatenate(q_values, axis=0).flatten()
 
 
-def main(model_paths, dataset_path, bins=50):
-    # Load dataset from file
-    dataset = pd.read_csv(dataset_path)
+def calibration_plot(policy, dataset, bins=50, batch_size=64):
+    # add eventual outcome to each state
+    dataset['outcome'] = dataset.groupby('episode').reward.apply(lambda x: x * 0 + (x > 0).any())
 
-    # Convert +/-15 rewards to 0/1 survival label
-    rewards = dataset.groupby('episode')['reward'].transform(get_terminal_reward).values
-    survival = (rewards + 15) / 30
+    # add Q-values of model for action of physician to each state
+    dataset['q_value'] = get_q_values(policy, dataset, batch_size=batch_size)
 
-    # Extract physician's actions from dataset
-    actions = dataset['action'].values[:, np.newaxis].astype(np.uint8)
+    # plot Q-values
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.hist(dataset.q_value, bins=bins)
 
-    fig, axs = plt.subplots(1, len(model_paths), figsize=(12, 6))
+    # discretize Q-values into evenly-sized  (within which to compute mortality rate)
+    dataset['q_value_bin'], bin_values = pd.cut(dataset.q_value, bins=bins, labels=np.arange(bins), retbins=True)
+    centroids = [bin_values[i:i + 2].mean() for i in range(bins)]
 
-    for i, (model_name, model_path) in enumerate(model_paths.items()):
-        policy = load_pretrained(model_path, 'policy.pkl')
-        encoder = load_pretrained(model_path, 'encoder.pkl')
+    # for each bin, estimate survival rate
+    q_values, survival_rates = [], []
+    for bin, bin_df in dataset.groupby('q_value_bin', sort=True):
+        q_values.append(centroids[bin])
+        survival_rates.append(bin_df.outcome.mean())
 
-        # Determine Q-values of actions by physician according to DQN
-        qvals = evaluate_on_dataset(encoder, policy, dataset, _type='qvals')
-        phys_qvals = np.take_along_axis(qvals, actions, axis=1)
-
-        # Drop actions chosen at absorbing terminal states
-        phys_qvals = phys_qvals[~np.isnan(rewards)]
-        phys_survival = survival[~np.isnan(rewards)]
-
-        # TODO: fix discounting!
-
-        # Right: Plot histogram of Q-values
-        axs2 = axs[i].twinx()
-        axs2.grid(False)
-        axs2.hist(phys_qvals.flatten(), bins=bins, color='gray')
-        if i == len(model_paths) - 1:
-            axs2.set_ylabel('Q value frequency')
-
-        # Left: Plot correlation between Q-value and survival
-        axs[i].plot(*qvals_against_survival_rate(phys_qvals, phys_survival), color='C0')
-        if i == 0:
-            axs[i].set_ylabel('Survival rate')
-        axs[i].set_xlabel('Q value')
-
-    plt.tight_layout()
+    ax2 = ax.twinx()
+    ax2.plot(q_values, survival_rates, c='grey')
     plt.show()
 
 
+
+
 if __name__ == '__main__':
-    dataset_path = '../../preprocessing/datasets/mimic-iii/roggeveen_4h/mimic-iii_test.csv'
-    paths = {'CKCNN': '../results/ckcnn_experiment_2022-10-23_21-10-05',
-             'Markovian': '../results/roggeveen_experiment_2022-10-23_19-28-28'}
-    main(paths, dataset_path)
+    policy = load_pretrained("../results/transformer_nsp_experiment_200000/model.pt")
+    dataset = load_data("../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/train.csv")
+    features = load_txt("../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/state_space_features.txt")
+
+    calibration_plot(policy=policy, dataset=dataset, bins=100)
+
+
