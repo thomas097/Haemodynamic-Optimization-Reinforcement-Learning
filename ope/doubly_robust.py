@@ -8,8 +8,8 @@ from fitted_q_iteration import FittedQIteration
 
 
 class WeightedDoublyRobust:
-    def __init__(self, behavior_policy_file, mdp_training_file, lrate=1e-2, iters=100, method='fqe',
-                 gamma=1.0, reward_bounds=(-100, 100)):
+    def __init__(self, behavior_policy_file, mdp_training_file, lrate=1e-1, iters=1000, method='fqe',
+                 gamma=1.0, reward_bounds=(-10, 10)):
         """ Implementation of the Weighted Doubly Robust (WDR) estimator for Off-policy Policy Evaluation (OPE).
         We use a Per-Horizon Weighted Importance Sampling (PHWIS) estimator for the IS part and a Fitted Q-Evaluation
         (FQE) or Iteration (FQI) estimator for the DM part. For details, see https://arxiv.org/pdf/1911.06854.pdf
@@ -30,6 +30,7 @@ class WeightedDoublyRobust:
             gamma=gamma,
             lrate=lrate,
             iters=iters,
+            is_deterministic=True,  # Assume greedy policy from DQN!
             reward_range=reward_bounds
         )
 
@@ -45,34 +46,31 @@ class WeightedDoublyRobust:
     def __call__(self, pi_e, episodes=None):
         """ Computes the WDR estimate of V^πe
         :param pi_e:      Table of action probs acc. to πe with shape (num_states, num_actions)
-        :param episodes:  Subset of episodes of pi_e to consider in estimating V^πe
+        :param episodes:  Subset of episodes of πe to consider in estimating V^πe
         :returns:         Estimate of mean V^πe
         """
         # inherit importance weights from PHWIS (thank you PHWIS)
         ratios = self.phwis.ratios(pi_e, episodes=episodes)
 
         # compute weight at t-1 by shifting the computed ratios forward by one timestep
-        # Note: as rho_t-1 is not known at t=0, we choose to drop the first time step of
-        # each admission by setting rho_t = rho_t-1 = 0
+        # Note: as rho[t-1] is not known for t=0, we choose to set the first time step of
+        # each admission as norm_rho[t-1] = 1 / num_episodes
         ratios['norm_rho_prev'] = ratios.groupby('episode').norm_rho.shift(periods=1)
         ratios.loc[ratios.norm_rho_prev.isna(), 'norm_rho_prev'] = 1 / ratios.episode.nunique()
 
-        # estimate state-value V using model
+        # estimate state value V and state-action value Q using model
         ratios['V'] = self.dm.state_value(pi_e, episodes=episodes)
+        ratios['Q'] = self.dm.state_action_value(chosen_actions=True, episodes=episodes)
 
-        # limit Q-values to actions chosen by behavior policy
-        if episodes is not None:
-            actions = self.phwis._actions[self._episodes.isin(episodes)]
-        else:
-            actions = self.phwis._actions
-        q = self.dm.state_action_value(episodes=episodes)
-        ratios['Q'] = np.take_along_axis(q, actions, axis=1).flatten()
+        # print('mean V:', np.mean(ratios.V))
+        # print('mean Q:', np.mean(ratios.Q))
+        # print('PHWIS: ', self.phwis(pi_e))
 
         # WDR estimate
-        wdr = 0
-        for h, df in ratios.groupby('horizon'):
-            wdr += np.sum(df.wh * df.gamma * (df.norm_rho * df.reward - (df.norm_rho * df.Q - df.norm_rho_prev * df.V)))
-        return wdr
+        df = ratios
+        wis = self.phwis(pi_e)
+        cov = np.mean(df.gamma * (df.Q - df.V))
+        return wis - cov
 
 
 
@@ -82,7 +80,8 @@ if __name__ == '__main__':
     GAMMA = 0.95
 
     # Toy policies to evaluate
-    behavior_policy = pd.read_csv(behavior_policy_file).filter(regex='\d+').values
+    behavior_df = pd.read_csv(behavior_policy_file)
+    behavior_policy = behavior_df.filter(regex='\d+').values
 
     random_policy = np.random.uniform(0, 1, behavior_policy.shape)
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)

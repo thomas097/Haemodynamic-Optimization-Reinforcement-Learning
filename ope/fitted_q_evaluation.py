@@ -1,7 +1,9 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from sklearn.preprocessing import label_binarize
 
 
 class MLP(torch.nn.Module):
@@ -83,21 +85,24 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=0.9, lrate=1e-1, iters=1000, reward_range=(-100, 100)):
+    def __init__(self, training_file, num_actions=25, gamma=0.95, is_deterministic=True, lrate=1e-1, iters=1000, reward_range=(-10, 10)):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
-        For details, see: http://proceedings.mlr.press/v139/hao21b/hao21b.pdf
-        :param training_file:   Dataset used to train FQE estimator (only aggregated dataset is supported for now)
-        :param num_actions:     Number of possible actions by agent
-        :param gamma:           Discount factor to trade-off immediate against future reward
-        :param lrate:           Learning rate
-        :param iters:           Training iterations
-        :param reward_range:    (min, max) range of rewards
+        For details, see: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9190764/pdf/nihms-1813152.pdf
+        :param training_file:     Dataset used to train FQE estimator (only aggregated dataset is supported for now)
+        :param num_actions:       Number of possible actions by agent
+        :param gamma:             Discount factor to trade-off immediate against future reward
+        :param is_deterministic:  Whether the policy to be evaluated is deterministic
+        :param lrate:             Learning rate
+        :param iters:             Training iterations
+        :param reward_range:      (min, max) range of rewards
         """
         # Pack training data file into a FQEDataset object holding states, actions, rewards, etc.
         self._train = FQEDataset(training_file)
         self._estimator = MLP(self._train.state_dims, num_actions)
         self._min_reward, self._max_reward = reward_range
         self._gamma = gamma
+        self._is_deterministic = is_deterministic
+        self._num_actions = num_actions
         self._iters = iters
         self._fitted = False
 
@@ -108,11 +113,20 @@ class FittedQEvaluation:
     def fitted(self):
         return self._fitted
 
+    def _make_deterministic(self, pi_e):
+        """ Make policy deterministic by greedily having it choose the highest prob action """
+        actions = torch.tensor(np.argmax(pi_e, axis=1))
+        return  F.one_hot(actions, num_classes=self._num_actions).numpy()
+
     def fit(self, pi_e):
         """ Fits FQE estimator for Q^pi_e with state-action-reward-nextstate transitions
         collected under the behavior policy
         :param pi_e:  Tensor of action probabilities for each state
         """
+        # make policy deterministic (better results for deterministic policies from DQN)
+        if self._is_deterministic:
+            pi_e = self._make_deterministic(pi_e)
+
         # limit policy's action probabilities to pi(*|s')
         policy_next_action_probs = np.delete(pi_e, self._train.first_state_idx, axis=0)
         policy_next_action_probs = torch.Tensor(policy_next_action_probs)
@@ -164,29 +178,37 @@ class FittedQEvaluation:
         if not self._fitted:
             raise Exception('Estimator has not been fitted; Call fit().')
 
-        # limit states to specific episodes (if specified)
-        states = self._limit_episodes(self._train.all_states, episodes=episodes)
-        probs = self._limit_episodes(torch.Tensor(pi_e), episodes=episodes)
+        if self._is_deterministic:
+            pi_e = self._make_deterministic(pi_e)
 
-        return self._estimator(states, action_probs=probs).detach().numpy()
+        v_values = self._estimator(self._train.all_states, action_probs=torch.Tensor(pi_e))
 
-    def state_action_value(self, episodes=None):
+        return self._limit_episodes(v_values.detach().numpy(), episodes=episodes)
+
+    def state_action_value(self, chosen_actions=False, episodes=None):
         """ Returns the estimated state-action value, Q(s, a), according to the
         evaluation policy on which the FQE instance was fitted
         """
         if not self._fitted:
             raise Exception('Estimator has not been fitted; Call fit().')
 
-        # limit states to specific episodes (if specified)
-        states = self._limit_episodes(self._train.all_states, episodes=episodes)
+        # estimate Q-values using fitted estimator
+        if chosen_actions:
+            q_values = self._estimator(self._train.all_states, hard_actions=self._train.all_actions)
+        else:
+            q_values = self._estimator(self._train.all_states)
 
-        return self._estimator(states).detach().numpy()
+        # limit states to specific episodes (if specified)
+        return self._limit_episodes(q_values.detach().numpy(), episodes=episodes)
 
 
 if __name__ == '__main__':
-    # Behavior policy
-    behavior_df = pd.read_csv('physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv')
-    behavior_action_probs = behavior_df.filter(regex='\d+').values  # assume 25 actions
+    GAMMA = 0.95
+
+    # Behavior policy (with deterministic actions!)
+    behavior_policy_file = 'physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv'
+    behavior_df = pd.read_csv(behavior_policy_file)
+    behavior_action_probs = label_binarize(behavior_df.action, classes=np.arange(25))
 
     # Zero policy
     zerodrug_action_probs = np.zeros(behavior_action_probs.shape)
@@ -200,13 +222,26 @@ if __name__ == '__main__':
     # Fit FQEs
     # Note: always use aggregated data file for training (time points in non-aggregated file will match!)
     training_file = '../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv'
-    behavior_estimator_fqe = FittedQEvaluation(training_file, gamma=0.95).fit(behavior_action_probs)
-    print('Behavior: ', np.mean(behavior_estimator_fqe.state_value(behavior_action_probs)))
+    behavior_estimator_fqe = FittedQEvaluation(training_file, gamma=GAMMA, is_deterministic=True).fit(behavior_action_probs)
+    print('Behavior policy:')
+    print('V:', np.mean(behavior_estimator_fqe.state_value(behavior_action_probs)))
+    print('Q:', np.mean(behavior_estimator_fqe.state_action_value(chosen_actions=True)))
 
-    zerodrug_estimator_fqe = FittedQEvaluation(training_file, gamma=0.95).fit(zerodrug_action_probs)
-    print('Zero-drug:', np.mean(zerodrug_estimator_fqe.state_value(zerodrug_action_probs)))
+    zerodrug_estimator_fqe = FittedQEvaluation(training_file, gamma=GAMMA, is_deterministic=True).fit(zerodrug_action_probs)
+    print('\nZero-drug:')
+    print('V:', np.mean(zerodrug_estimator_fqe.state_value(zerodrug_action_probs)))
+    print('Q:', np.mean(zerodrug_estimator_fqe.state_action_value(chosen_actions=True)))
 
-    random_estimator_fqe = FittedQEvaluation(training_file, gamma=0.95).fit(random_action_probs)
-    print('Random:   ', np.mean(random_estimator_fqe.state_value(random_action_probs)))
+    random_estimator_fqe = FittedQEvaluation(training_file, gamma=GAMMA, is_deterministic=True).fit(random_action_probs)
+    print('\nRandom:')
+    print('V:', np.mean(random_estimator_fqe.state_value(random_action_probs)))
+    print('Q:', np.mean(random_estimator_fqe.state_action_value(chosen_actions=True)))
+
+    # Sanity check: what return do we expect from the behavior policy?
+    behavior_policy = pd.read_csv(behavior_policy_file)
+    behavior_policy['gamma'] = behavior_policy.groupby('episode').reward.transform(lambda x: GAMMA ** np.arange(len(x)))
+    behavior_policy['discounted_reward'] = behavior_policy.gamma * behavior_policy.reward
+    expected_return = behavior_policy.groupby('episode').discounted_reward.sum().mean()
+    print('Expected return:', expected_return)
 
 
