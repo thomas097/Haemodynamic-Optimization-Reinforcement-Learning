@@ -85,7 +85,8 @@ class FQEDataset:
 
 
 class FittedQEvaluation:
-    def __init__(self, training_file, num_actions=25, gamma=0.95, is_deterministic=True, lrate=1e-1, iters=1000, reward_range=(-10, 10)):
+    def __init__(self, training_file, num_actions=25, gamma=0.95, is_deterministic=True, lrate=1e-1, iters=1000,
+                 reward_range=(-10, 10), seed=42):
         """ Implementation of Fitted Q-Evaluation (FQE) for Off-policy Policy Evaluation (OPE)
         For details, see: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9190764/pdf/nihms-1813152.pdf
         :param training_file:     Dataset used to train FQE estimator (only aggregated dataset is supported for now)
@@ -95,7 +96,10 @@ class FittedQEvaluation:
         :param lrate:             Learning rate
         :param iters:             Training iterations
         :param reward_range:      (min, max) range of rewards
+        :param seed:              Set seed to initialize weights deterministically (for reproducibility)
         """
+        torch.manual_seed(seed=seed)
+
         # Pack training data file into a FQEDataset object holding states, actions, rewards, etc.
         self._train = FQEDataset(training_file)
         self._estimator = MLP(self._train.state_dims, num_actions)

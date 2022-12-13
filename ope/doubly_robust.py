@@ -67,10 +67,7 @@ class WeightedDoublyRobust:
         # print('PHWIS: ', self.phwis(pi_e))
 
         # WDR estimate
-        df = ratios
-        wis = self.phwis(pi_e)
-        cov = np.mean(df.gamma * (df.Q - df.V))
-        return wis - cov
+        return self.phwis(pi_e) - np.mean(ratios.gamma * (ratios.Q - ratios.V))
 
 
 
