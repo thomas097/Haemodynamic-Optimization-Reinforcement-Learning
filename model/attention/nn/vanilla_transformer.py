@@ -4,7 +4,7 @@ from transformer_layers import TransformerEncoderLayer
 
 class Transformer(torch.nn.Module):
     def __init__(self, in_channels, out_channels, d_model=64, d_key=24, n_blocks=2, n_heads=2, padding_value=0,
-                 max_steps=12, causal=False):
+                 max_steps=32, causal=True, conv_size=1):
         """ Transformer (Vaswani et al., 2017) with Causal Self-Attention
         :param in_channels:      Number of input channels
         :param out_channels:     Number of output channels
@@ -15,6 +15,8 @@ class Transformer(torch.nn.Module):
         :param padding_value:    Vocab entry reserved for padding (default: 0)
         :param max_steps:        Maximum number of relative time steps to consider in attention computation
         :param causal:           Whether to mask future positions in attention calculation
+        :param conv_size:        Number of time steps to consider in the convolution replacing the
+                                 feed forward layer (default: 1; equivalent to simple feed forward)
         """
         super(Transformer, self).__init__()
         self.config = locals()
@@ -27,7 +29,7 @@ class Transformer(torch.nn.Module):
 
         # Transformer blocks + fusion block + FF layer
         self._encoder_layers = torch.nn.ModuleList(
-            [TransformerEncoderLayer(d_model, n_heads=n_heads, d_key=d_key) for _ in range(n_blocks)]
+            [TransformerEncoderLayer(d_model, n_heads=n_heads, d_key=d_key, conv_size=conv_size) for _ in range(n_blocks)]
         )
         self._linear = torch.nn.Linear(d_model, out_channels)
         self._initialize()
