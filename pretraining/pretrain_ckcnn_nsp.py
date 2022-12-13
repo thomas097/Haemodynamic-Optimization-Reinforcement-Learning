@@ -8,31 +8,33 @@ from utils import count_parameters
 
 if __name__ == '__main__':
     # Training and validation dataset
-    train_df = pd.read_csv('../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/mimic-iii/aggregated_all_1h/mimic-iii_valid.csv')
+    train_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/train.csv')
+    valid_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv')
 
-    # Set up encoder and next-state-prediction head
-    encoder = CKCNN(
-        layer_channels=(48, 32),
+    in_channels = train_df.filter(regex='x\d+').shape[1]
+
+    # Set up encoder and next-action prediction head
+    ckcnn = CKCNN(
+        layer_channels=(in_channels, 32),
         d_kernel=24,
         max_timesteps=72,
         kernel_type='siren',
-        fourier_input=True,
+        fourier_input=False,
         use_residuals=True,
     )
-    print('CKCNN parameters:', count_parameters(encoder))
+    print('CKCNN parameters:', count_parameters(ckcnn))
 
     # decoder to output same number of state-space dims
     decoder = torch.nn.Sequential(
-        torch.nn.Linear(32, 32),
+        torch.nn.Linear(32, 64),
         torch.nn.LeakyReLU(),
-        torch.nn.Linear(32, 48),
+        torch.nn.Linear(64, in_channels),
     )
 
     # Train!
     fit_next_state(
         experiment='results/ckcnn_siren_nsp_pretraining',
-        encoder=encoder,
+        encoder=ckcnn,
         decoder=decoder,
         train_data=train_df,
         valid_data=valid_df,

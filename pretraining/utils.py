@@ -39,12 +39,6 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def add_missingness_ind(df, thres=1e-4):
-    missing_ind = (df.filter(regex='x\d+').groupby(df.episode).diff().abs().fillna(1) < thres).astype(float)
-    missing_ind = missing_ind.rename(columns={c:c + '00000' for c in missing_ind.columns})
-    return pd.concat([df, missing_ind], axis=1)
-
-
 def print_stats(df):
     """ Prints frequency table of different actions """
     # Count frequency and overall percentage of different actions
