@@ -18,6 +18,7 @@ class EvaluationReplay:
         dataset = dataset.reset_index(drop=True)
         states = dataset.filter(regex='x\d+').values
         self._states = torch.tensor(states, dtype=torch.float32)
+        self._actions = dataset.action.values.astype(np.uint8)
 
         # build index of states and their histories to speed up replay
         self._indices, self._histories = self._build_history_index(dataset)
@@ -47,7 +48,7 @@ class EvaluationReplay:
         arr = pad_sequences([s.numpy() for s in sequences], padding="pre", truncating="pre", value=value, dtype=np.float32)
         return torch.tensor(arr)[:, -self._max_len:]
 
-    def iterate(self, batch_size=128):
+    def iterate(self, batch_size=128, return_actions=False):
         with torch.no_grad():
             for j in range(0, self._buffer_size, batch_size):
                 batch_transitions = self._indices[j:j + batch_size]
@@ -58,7 +59,12 @@ class EvaluationReplay:
 
                 # consolidate lengths
                 states = self._pad_batch_sequences(states).to(self._device)
-                yield states
+
+                if return_actions:
+                    actions = torch.LongTensor(self._actions[batch_transitions])
+                    yield states, actions
+                else:
+                    yield states
 
 
 class PrioritizedReplay:

@@ -2,9 +2,10 @@ import torch
 import pandas as pd
 
 
-def reward_regularizer(q_pred, limit):
+def reward_regularizer(q, limits):
     """ Punishes policy for overestimating Q-values above or below limit """
-    return torch.clamp(torch.abs(q_pred) - limit, min=0).sum().double()
+    r_min, r_max = limits
+    return torch.clamp(q - r_max, min=0).sum().double() + torch.clamp(r_min - q, min=0).sum().double()
 
 
 def physician_regularizer(q_vals, true_actions):

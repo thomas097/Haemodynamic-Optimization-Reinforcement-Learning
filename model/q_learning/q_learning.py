@@ -113,7 +113,7 @@ def fit_double_dqn(
         scheduler_gamma=0.9,
         step_scheduler_after=10000,
         freeze_encoder=False,
-        lambda_reward=5,
+        lambda_reward=1,
         lambda_phys=0.0,
         lambda_consv=0.0,
         eval_func=None,
@@ -178,7 +178,7 @@ def fit_double_dqn(
         # loss + regularization
         loss = weighted_MSE_loss(q_pred, q_target, weights)
         if lambda_reward > 0:
-            loss += lambda_reward * reward_regularizer(q_pred, min_max_reward[1])
+            loss += lambda_reward * reward_regularizer(q_pred, min_max_reward)
         if lambda_phys > 0:
             loss += lambda_phys * physician_regularizer(q_vals, actions)
         if lambda_consv > 0:
