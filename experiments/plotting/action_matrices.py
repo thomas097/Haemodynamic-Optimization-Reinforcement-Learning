@@ -39,7 +39,7 @@ def load_pickle(path):
         return pickle.load(file)
 
 
-def predict_actions(encoder, policy, dataset, n_episodes, truncate=256, batch_size=8):
+def predict_actions(model, dataset, n_episodes, truncate=256, batch_size=8):
     """ determines proportion of IV/VP actions (0 - 4) chosen by model over time
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -52,34 +52,25 @@ def predict_actions(encoder, policy, dataset, n_episodes, truncate=256, batch_si
     dataset = dataset[dataset.episode.isin(episodes)]
     replay_buffer = EvaluationReplay(dataset, device=device, max_len=truncate)
 
-    # compute total number of 'actionable' states in dataset
-    states = dataset[dataset.action.notna()]
-    total_states = states.shape[0]
-
     # Collect actions by model
     actions = []
     with torch.no_grad():
-        with tqdm(total=total_states) as pbar:
+        with tqdm(total=dataset.shape[0]) as pbar:
             for x in replay_buffer.iterate(batch_size):
                 # feed batch of states (x) through model to predict action
-                h = encoder(x).detach()
-                a = torch.argmax(policy(h), axis=1)
+                a = torch.argmax(model(x).detach(), axis=1)
                 actions.extend(a.tolist())
-
                 pbar.update(x.size(0))
     return actions
 
 
 def matrix_from_actions(actions, bin_file):
     """ Populates action matrix of physician """
-    # sanity check: drop NaNs if any
-    actions = np.array(actions)[~np.isnan(actions)]
-
     action_matrix = np.zeros((5, 5), dtype=np.uint64)
     for a in actions:
         action_matrix[bin_file[a]] += 1
 
-    # invert rows so (0, 0) is bottom left
+    # invert rows so (0, 0) is below
     return action_matrix[::-1]
 
 
@@ -107,18 +98,16 @@ def plot_action_matrices(matrices, labels):
 
 
 if __name__ == '__main__':
-    encoder = load_pretrained('../results/last_state_experiment_00006/encoder.pt')
-    policy = load_pretrained('../results/last_state_experiment_00006/policy.pt')
-    dataset = load_csv('../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/valid.csv')
-    bin_file = load_pickle('../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/action_to_vaso_fluid_bins.pkl')
+    model = load_pretrained('../results/pretrained_autoencoder_experiment_00000/model.pt')
+    dataset = load_csv('../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv')
+    bin_file = load_pickle('../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/action_to_vaso_fluid_bins.pkl')
 
     # physician
     phys_action_matrix = matrix_from_actions(dataset.action, bin_file=bin_file)
 
     # model
     model_actions = predict_actions(
-        encoder=encoder,
-        policy=policy,
+        model=model,
         dataset=dataset,
         n_episodes=-1,
     )

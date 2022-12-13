@@ -33,7 +33,7 @@ def main(in_dir, paths, metric, smooth_over_episodes=500):
         episode = np.linspace(0, num_episodes, scores.shape[0])
 
         # Smooth scores using box-kernel of x-episodes
-        if smooth_over_episodes and len(scores) > 100:
+        if smooth_over_episodes and len(scores) > 1000:
             kernel_size = int(smooth_over_episodes * scores.shape[0] / num_episodes)
             smoothed_scores = uniform_filter1d(scores, kernel_size, mode='nearest')
             plt.plot(episode, smoothed_scores, color=COLORS[i], linewidth=1.7)
@@ -48,10 +48,9 @@ def main(in_dir, paths, metric, smooth_over_episodes=500):
 
 
 if __name__ == '__main__':
-    paths = {'Last state': 'last_state_experiment_00001',
-             'Transformer (pretrained - NSP)': 'pretrained_transformer_experiment_00000'}
+    paths = {'Transformer (pretrained - NSP)': 'transformer_nsp_experiment_200000'}
 
-    metrics = ['loss', 'avg_Q_value', 'max_Q_value', 'chosen_action_Q_value']
+    metrics = ['loss', 'avg_Q_value', 'max_Q_value', 'chosen_action_Q_value', 'phwis', 'ess', 'physician_entropy']
     in_dir = '../results/'
 
     for metric in metrics:

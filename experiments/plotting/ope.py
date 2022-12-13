@@ -66,7 +66,7 @@ def conf_interval(scores, conf_level):
 
 
 def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=256, lrate=1e-2, iters=15000,
-                    gamma=1.0, n_bootstraps=100, fraction=0.8, conf_level=0.95):
+                    gamma=1.0, n_bootstraps=100, fraction=0.8, conf_level=0.95, seed=42):
     """ Computes WIS, FQE and WDR estimates of policy performance
     :param policy_file:           File pointing to a trained policy network. If policy_file == behavior_policy_file,
                                   then the estimated behavior policy is evaluated.
@@ -80,6 +80,9 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     :param fraction:              Fraction of episodes to construct each bootstrap set (default: 0.8)
     :param conf_level:            Confidence level (default: 0.95)
     """
+    # make reproducible
+    random.seed(seed)
+
     # get policy's action probs for states in dataset
     if policy_file != behavior_policy_file:
         action_probs = get_action_probs(policy=load_pretrained(policy_file), dataset_file=dataset_file, batch_size=batch_size)

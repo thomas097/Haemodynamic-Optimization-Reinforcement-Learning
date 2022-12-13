@@ -27,9 +27,9 @@ def load_pretrained(path):
     return model
 
 
-def get_actions(policy, dataset_file, batch_size):
+def get_actions(model, dataset_file, batch_size):
     """ Obtains actions for each history in dataset from policy
-    :param policy:      A trained policy network
+    :param model:       A trained policy network
     :param dataset:     Dataset with variable-length patient trajectories
     :param batch_size:  Number of histories to process at once
     :returns:           Tensor of shape (n_states, n_actions)
@@ -44,7 +44,7 @@ def get_actions(policy, dataset_file, batch_size):
         with tqdm(total=len(dataset), desc='gathering predictions', position=0, leave=True) as pbar:
             for states in replay.iterate(batch_size):
                 # histories -> encoder -> policy network + argmax
-                probs = to_numpy(torch.argmax(policy(states), dim=1))
+                probs = to_numpy(torch.argmax(model(states), dim=1))
                 actions_pred.append(probs)
                 pbar.update(states.size(0))
 
@@ -59,7 +59,7 @@ def plot_confusion_matrix(model, dataset_file, maxlen, batch_size):
     # Collect predictions of model
     model.eval()
     y_true, y_pred = get_actions(
-        policy=model,
+        model=model,
         dataset_file=dataset_file,
         batch_size=batch_size,
     )
@@ -75,7 +75,7 @@ def plot_confusion_matrix(model, dataset_file, maxlen, batch_size):
 
 
 if __name__ == '__main__':
-    model = load_pretrained("../results/last_state_experiment_00007/model.pt")
+    model = load_pretrained("../results/pretrained_transformer_experiment_00002/model.pt")
     dataset_file = "../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/test.csv"
 
     plot_confusion_matrix(

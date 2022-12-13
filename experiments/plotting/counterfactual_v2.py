@@ -37,16 +37,16 @@ def get_actions(policy, episodes, batch_size=32):
     return np.concatenate(actions, axis=0)
 
 
-def manipulate_episodes(policy, episodes, feature_names, features, amounts, n_times, batch_size=64):
+def manipulate_episodes(policy, episodes, feature_names, features, labels, amounts, n_times, batch_size=64):
     # run policy over trajectories before manipulation
     horizon = len(episodes) // episodes.episode.nunique()
     pre_actions = get_actions(policy, episodes, batch_size=batch_size).reshape(-1, horizon)
-    pre_feature = episodes['x%d' % feature_names.index(features[0])].values.reshape(-1, horizon)
+    pre_features = [episodes['x%d' % feature_names.index(f)].values.reshape(-1, horizon) for f in features]
 
     # manipulate trajectories
-    period = horizon // n_times
-    times = np.arange(1, horizon + 1) % period - 2 == 0
-    kernel = np.array([1.6, 0.8, 0.4, 0.2, 0.1])
+    period = horizon // (n_times + 1)
+    times = np.arange(1, horizon + 1) % period == 0
+    kernel = np.array([1.2, 1.6, 0.8, 0.4, 0.2, 0.1])
     kernel = kernel / np.sum(kernel)
     manip_times = np.convolve(times, kernel, mode='same')
 
@@ -57,32 +57,38 @@ def manipulate_episodes(policy, episodes, feature_names, features, amounts, n_ti
 
     # run policy over trajectories after manipulation
     post_actions = get_actions(policy, episodes, batch_size=batch_size).reshape(-1, horizon)
-    post_feature = episodes['x%d' % feature_names.index(features[0])].values.reshape(-1, horizon)
+    post_features = [episodes['x%d' % feature_names.index(f)].values.reshape(-1, horizon) for f in features]
 
     # plot average action over average manipulated feature
-    plot_actions(pre_actions, post_actions, pre_feature, post_feature, feature_name=features[0])
+    plot_actions(pre_actions, post_actions, pre_features, post_features, feature_names=labels)
 
 
-def plot_actions(pre_actions, post_actions, pre_feature, post_feature, feature_name):
-    plt.figure(figsize=(16, 9))
+def plot_actions(pre_actions, post_actions, pre_features, post_features, feature_names):
+    plt.figure(figsize=(13, 8))
 
     # Vasopressors
+    plt.subplot(2, 1, 1)
     avg_pre_max_vaso = np.mean(pre_actions % 5, axis=0)
     avg_post_max_vaso = np.mean(post_actions % 5, axis=0)
-    plt.plot(avg_pre_max_vaso, c='C0', linestyle='--', alpha=0.5)
+    plt.plot(avg_pre_max_vaso, c='C0', alpha=0.5)
     plt.plot(avg_post_max_vaso, c='C0', label='Max vasopressor')
 
     # IV Fluids
     avg_pre_iv_fluid = np.mean(pre_actions // 5, axis=0)
     avg_post_iv_fluid = np.mean(post_actions // 5, axis=0)
-    plt.plot(avg_pre_iv_fluid, c='C1', linestyle='--', alpha=0.5)
+    plt.plot(avg_pre_iv_fluid, c='C1', alpha=0.5)
     plt.plot(avg_post_iv_fluid, c='C1', label='Total IV fluid')
+    plt.legend()
 
-    # Manipulated feature
-    avg_pre_feature = np.mean(pre_feature, axis=0)
-    avg_post_feature = np.mean(post_feature, axis=0)
-    plt.plot(avg_pre_feature, c='C2', linestyle='--')
-    plt.plot(avg_post_feature, c='C2', label=feature_name)
+    # (Non-)manipulated trajectories
+    plt.subplot(2, 1, 2)
+
+    colors = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9']
+    for i, f in enumerate(feature_names):
+        avg_pre_feature = np.mean(pre_features[i], axis=0)
+        avg_post_feature = np.mean(post_features[i], axis=0)
+        plt.plot(avg_pre_feature, c=colors[i % 10], alpha=0.5)
+        plt.plot(avg_post_feature, c=colors[i % 10], label=f)
 
     plt.legend()
     plt.show()
@@ -90,20 +96,21 @@ def plot_actions(pre_actions, post_actions, pre_feature, post_feature, feature_n
 
 
 if __name__ == '__main__':
-    policy = load_pretrained("../results/pretrained_transformer_experiment_00001/model.pt")
-    dataset = load_data("../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/test.csv")
-    features = load_txt("../../preprocessing/datasets/amsterdam-umc-db_v2/aggregated_full_cohort_2h/state_space_features.txt")
+    policy = load_pretrained("../results/pretrained_autoencoder_experiment_00000/model.pt")
+    dataset = load_data("../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/test.csv")
+    features = load_txt("../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/state_space_features.txt")
 
-    episodes = select_episodes(dataset, length=24)
-    print('Extracted episodes')
+    episodes = select_episodes(dataset, length=32)
+    print('Extracted %d episodes' % episodes.episode.nunique())
 
     episodes = manipulate_episodes(
         policy=policy,
         episodes=episodes,
         feature_names=features,
         features=('dias_bp', 'mean_bp', 'sys_bp'),
-        amounts=(-2, -2, -2),
-        n_times=3,
+        labels=('Diastolic BP', 'Mean BP', 'Systolic BP'),
+        amounts=(-1, -1, -1),
+        n_times=2,
     )
 
 
