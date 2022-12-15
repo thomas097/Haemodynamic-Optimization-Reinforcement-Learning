@@ -62,10 +62,6 @@ class WeightedDoublyRobust:
         ratios['V'] = self.dm.state_value(pi_e, episodes=episodes)
         ratios['Q'] = self.dm.state_action_value(chosen_actions=True, episodes=episodes)
 
-        # print('mean V:', np.mean(ratios.V))
-        # print('mean Q:', np.mean(ratios.Q))
-        # print('PHWIS: ', self.phwis(pi_e))
-
         # WDR estimate
         return self.phwis(pi_e) - np.mean(ratios.gamma * (ratios.Q - ratios.V))
 

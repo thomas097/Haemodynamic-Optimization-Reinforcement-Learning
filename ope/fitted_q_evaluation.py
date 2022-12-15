@@ -92,7 +92,7 @@ class FittedQEvaluation:
         :param training_file:     Dataset used to train FQE estimator (only aggregated dataset is supported for now)
         :param num_actions:       Number of possible actions by agent
         :param gamma:             Discount factor to trade-off immediate against future reward
-        :param is_deterministic:  Whether the policy to be evaluated is deterministic
+        :param is_deterministic:  Whether the policy to be evaluated is deterministic (e.g. learnt by DQN)
         :param lrate:             Learning rate
         :param iters:             Training iterations
         :param reward_range:      (min, max) range of rewards
@@ -167,7 +167,9 @@ class FittedQEvaluation:
         return self
 
     def _limit_episodes(self, arr, episodes=None):
-        """ Convenience function to limit episodes in arr to just a subset """
+        """ Convenience function to limit episodes in arr to just a subset
+            (primarily for implementing bootstrapping confidence intervals)
+        """
         if episodes is not None:
             return arr[self._train.episodes.isin(episodes)]
         else:

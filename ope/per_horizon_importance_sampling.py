@@ -13,12 +13,10 @@ class PHWIS:
         # determine probability of chosen action under behavior policy
         behavior_df = pd.read_csv(behavior_policy_file)
         self._actions, action_probs = self._get_action_probs(behavior_df)
-        self._ess = None
+        self._last_weights = None
 
-        # determine horizon of each episode
+        # compute horizon of each episode and add time step column
         horizon = behavior_df.groupby('episode').size()
-
-        # count time steps in episode
         timesteps = behavior_df.groupby('episode').action.transform(lambda ep: np.arange(len(ep)))
 
         # combine into DataFrame
@@ -45,10 +43,7 @@ class PHWIS:
         """ Compute effective sample size (ESS) as 1 / sum(w_i^2) and
         weigh episodes by the contributions of their horizons
         """
-        # weigh importance weights by normalized horizon weight
-        ess = np.array([1 / np.sum(w ** 2) for w in self._ess])
-        #supp = np.array([w.shape[0] for w in self._ess])
-        return np.sum(ess)#.dot(supp / np.sum(supp))
+        return np.sum([1 / np.sum(w ** 2) for w in self._last_weights])
 
     def ratios(self, pi_e, episodes=None):
         """ Returns a DataFrame of cumulative importance ratios ('rho') for each timestep and episode
@@ -60,9 +55,9 @@ class PHWIS:
         df = self._df.copy()
         df['probs_e'] = np.take_along_axis(pi_e, indices=self._actions, axis=1).flatten()
         df['ratio'] = df.probs_e / df.probs_b
-        df['ratio'] = np.clip(df.ratio ** 0.25, a_min=0.5, a_max=2) # non-lin OPE
+        df['ratio'] = np.clip(df.ratio, a_min=0.5, a_max=2) # helps minimize chances of divergence and/or underflow!
 
-        # filter episodes (optional))
+        # filter episodes (optional)
         if episodes is not None:
             df = df[df.episode.isin(episodes)]
 
@@ -70,16 +65,16 @@ class PHWIS:
         df['rho'] = df.groupby('episode').ratio.cumprod()
         df['norm_rho'] = df.groupby(['horizon', 'timestep']).rho.apply(lambda rho: self._normalize(rho))
 
-        # track weights at terminal state to compute sample size
-        self._ess = [w.norm_rho.values[h - 1::h] for h, w in df.groupby('horizon')]
+        # track weights at terminal state to compute effective sample size
+        self._last_weights = [w.norm_rho.values[h - 1::h] for h, w in df.groupby('horizon')]
 
-        # compute contribution of horizon wh as '#episodes with horizon' / '#episodes'
+        # compute contribution of horizon Wh as support '#episodes with horizon' / '#episodes'
         n_episodes = df.episode.nunique()
         df['wh'] = df.groupby('horizon').episode.transform(lambda x: x.nunique()) / n_episodes
         return df
 
     def _normalize(self, ratios):
-        """ Normalizes ratios """
+        """ Normalize ratios at each time, taking care of diverging/underflowing weights """
         total = np.sum(ratios)
         if total == 0:
             return np.full(shape=ratios.shape, fill_value=1 / ratios.shape[0])
@@ -96,7 +91,7 @@ class PHWIS:
 
 
 if __name__ == '__main__':
-    ## Step 0: Policies
+    ## Define policies
 
     # behavior policy
     behavior_policy_file = 'physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv'
@@ -113,7 +108,7 @@ if __name__ == '__main__':
     random_policy = np.random.uniform(0, 1, behavior_policy.shape)  # Noise
     random_policy = random_policy / np.sum(random_policy, axis=1, keepdims=True)
 
-    ## Step 1: Estimate performance
+    ## Estimate performance
 
     estimator = PHWIS(behavior_policy_file, gamma=0.95)
     print('PHWIS:')
