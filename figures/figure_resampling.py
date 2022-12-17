@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 np.random.seed(1)
@@ -24,6 +25,11 @@ data = []
 for height in range(2):
     freqs = np.random.uniform(1, 3, 3)
     x, y = generate_fake_data(50, freqs=freqs, alphas=[0.2, 0.5, 0.3])
+
+    # drop some measurements
+    if height == 1:
+        y[8:17] = np.NaN
+    
     data.append((x, y))
 
 #
@@ -78,10 +84,26 @@ ax2.add_patch(rect2)
 #  Resample data into fixed bins and plot in bottom window
 #
 
+# https://stackoverflow.com/questions/41190852/most-efficient-way-to-forward-fill-nan-values-in-numpy-array
+def pandas_fill(arr):
+    df = pd.DataFrame(arr)
+    df.fillna(method='ffill', axis=0, inplace=True)
+    return df.values.flatten()
+
 for i, (x, y) in enumerate(data):
+    y2 = pandas_fill(y)
+    
     t = np.arange(-20, 1) / 2
-    y = np.interp(t, x, y) + i
-    plt.scatter(t, y, s=50, alpha=0.7, color=colors[i], edgecolors="black")
+    y2 = np.interp(t, x, y2) + i
+
+    c = colors[i]
+    clr = ['grey' if (j > 4) and (j < 9) and i == 1 else c for j in range(len(t))]
+    
+    plt.scatter(t, y2, s=50, alpha=0.7, color=clr, edgecolors="black")
+    
+
+ax2.text(-6.75, 1.25, ha='center', s='LVCF')
+#ax2.text(-7.05, 1.2, ha='center', s='{', stretch=1000, fontsize=60, rotation=-90)
     
 ax2.set_xlabel('Time step')
 ax2.set_xticks([-10, -7.5, -5, -2.5, 0])
