@@ -1,11 +1,12 @@
 import torch
+import torch.nn.functional as F
 from transformer_layers import TransformerEncoderLayer
 
 
 class Transformer(torch.nn.Module):
     def __init__(self, in_channels, out_channels, d_model=64, d_key=24, n_blocks=2, n_heads=2, padding_value=0,
                  max_steps=32, causal=True, conv_size=1):
-        """ Transformer (Vaswani et al., 2017) with Causal Self-Attention
+        """ Transformer (Vaswani et al., 2017) with Causal Self-Attention for time series
         :param in_channels:      Number of input channels
         :param out_channels:     Number of output channels
         :param d_model:          Latent dimensions of the model (default: 64)
@@ -23,9 +24,10 @@ class Transformer(torch.nn.Module):
         self._padding_value = padding_value
         self._max_steps = max_steps
         self._causal = causal
+        self._conv_size = conv_size
 
-        # Input encoding network
-        self._input_encoding = torch.nn.Linear(in_channels, d_model)
+        # Input encoding network using small convolution
+        self._input_encoding = torch.nn.Conv1d(in_channels, d_model, kernel_size=conv_size, padding=0)
 
         # Transformer blocks + fusion block + FF layer
         self._encoder_layers = torch.nn.ModuleList(
@@ -39,6 +41,10 @@ class Transformer(torch.nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
+
+    def _causal_padding(self, x):
+        """ Adds causal padding to input sequence to ensure causal feed forward pass """
+        return F.pad(x, pad=(self._conv_size - 1, 0), mode='constant', value=0)
 
     @staticmethod
     def _causal_mask(x):
@@ -80,6 +86,9 @@ class Transformer(torch.nn.Module):
         :return:             Tensor of shape (batch_size, num_timesteps, out_channels)
                              or (batch_size, out_channels) when `return_last=True`
         """
+        # truncate sequence to max_steps
+        x = x[:, -self._max_steps:]
+
         # combined causal/padding mask
         src_mask = self._padding_mask(x)
         if self._causal:
@@ -88,8 +97,11 @@ class Transformer(torch.nn.Module):
         # distances for RPE
         rel_dist = self._distance_matrix(x).to(x.device)
 
+        # encode input using small convolution
+        x_padded = self._causal_padding(x.permute(0, 2, 1))
+        y = self._input_encoding(x_padded).permute(0, 2, 1)
+
         # forward pass
-        y = self._input_encoding(x)
         for layer in self._encoder_layers:
             y = layer(y, src_mask=src_mask, rel_dists=rel_dist)
 

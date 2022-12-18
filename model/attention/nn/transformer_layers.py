@@ -23,6 +23,7 @@ class TransformerEncoderLayer(torch.nn.Module):
             self.self_attn = MultiHeadSelfAttention(d_model, n_heads=n_heads, d_key=d_key)
 
         # we replace the position-wise feedforward layer by a 1D convolutional layer
+        # which is equiv. to feed-forward when conv_size=1
         self.feedforward = torch.nn.Conv1d(d_model, d_model, kernel_size=conv_size, padding=0)
         self.layer_norm1 = torch.nn.LayerNorm(d_model)
         self.layer_norm2 = torch.nn.LayerNorm(d_model)
@@ -30,7 +31,7 @@ class TransformerEncoderLayer(torch.nn.Module):
 
     def _causal_padding(self, x):
         """ Adds causal padding to input sequence to ensure causal feed forward pass """
-        return F.pad(x, pad=(0, 0, self._conv_size - 1, 0), mode='constant', value=0)
+        return F.pad(x, pad=(self._conv_size - 1, 0), mode='constant', value=0)
 
     def forward(self, x, src_mask, rel_dists):
         """
@@ -45,9 +46,9 @@ class TransformerEncoderLayer(torch.nn.Module):
         z = self.layer_norm1(x + x_attn)
 
         # feed forward using convolution + residual connections
-        z_padded = self._causal_padding(z).permute(0, 2, 1)
+        z_padded = self._causal_padding(z.permute(0, 2, 1))
         z_ff = self.feedforward(z_padded).permute(0, 2, 1)
-        return self.layer_norm2(z + self.leaky_relu(z_ff))
+        return self.layer_norm2(self.leaky_relu(z_ff))
 
 
 class MultiHeadSelfAttention(torch.nn.Module):
@@ -58,7 +59,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
         :param d_key:    Dimensions of queries/keys in self-attention computation
         """
         super(MultiHeadSelfAttention, self).__init__()
-        assert n_heads > 0 and d_model % n_heads == 0
+        assert n_heads > 0
 
         self._heads = torch.nn.ModuleList()
         for _ in range(n_heads):
