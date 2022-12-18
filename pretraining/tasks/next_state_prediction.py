@@ -1,3 +1,4 @@
+import copy
 import os
 import torch
 import math
@@ -11,7 +12,7 @@ from behavior_cloning import CosineWarmupScheduler
 
 
 class EvaluationCallback:
-    def __init__(self, valid_dataloader, mask_missing, n_features, num_samples=10000):
+    def __init__(self, valid_dataloader, mask_missing=False, num_samples=10000):
         """ Callback to evaluate model intermittently on validation set during training
         :param valid_dataloader:  DataLoader object loaded with validation set
         :param num_samples:       Max number of histories to evaluate on (for debugging purposes)
@@ -20,9 +21,9 @@ class EvaluationCallback:
         self._mse_loss = torch.nn.MSELoss()
         self._mask_missing = mask_missing
         self._num_samples = num_samples
-        self._n_features = n_features
+        #self._n_features = n_features
 
-    def __call__(self, model, batch_size):
+    def __call__(self, encoder, decoder, forward_decoder, batch_size):
         """ Evaluates model on validation set
         :param model:       Pytorch regression model
         :param batch_size:  Number of states per batch
@@ -31,7 +32,6 @@ class EvaluationCallback:
         mse = []
         total_samples = 0
 
-        model.eval()
         with torch.no_grad():
             # collect predictions of model for states in dataset
             self._dataloader.reset()
@@ -39,18 +39,23 @@ class EvaluationCallback:
                 total_samples += batch_size
                 states, _, _, next_states, _, _ = self._dataloader.sample(batch_size, deterministic=True)
 
-                pred_next_state = model(states)
-                true_next_state = next_states[:, -1, :self._n_features]
+                encoded_state = encoder(states)
+                pred_state = decoder(encoded_state)  # auto encoder
+                pred_next_state = states[:, -1] + forward_decoder(encoded_state)
+                true_state = states[:, -1]
+                true_next_state = next_states[:, -1]
 
                 # mask out missing values if any
                 if self._mask_missing:
-                    missing_mask = 1 - states[:, -1, self._n_features:]
+                    with torch.no_grad():
+                        missing_mask = torch.absolute(states[:, -1] - next_states[:, -1]) > 1e-4
                     pred_next_state = pred_next_state * missing_mask
                     true_next_state = true_next_state * missing_mask
 
-                loss = self._mse_loss(pred_next_state, true_next_state)
+                loss = self._mse_loss(pred_next_state[:, 2:], true_next_state[:, 2:])   # Forward prediction loss
+                loss += 0.2 * self._mse_loss(pred_next_state[:, :2], true_next_state[:, :2])  # Behavior cloning loss
+                loss += self._mse_loss(pred_state, true_state)                          # Auto-encoding loss
                 mse.append(loss.item())
-        model.train()
 
         # compute mean squared error loss
         return {'valid_mse': np.mean(mse)}
@@ -61,7 +66,7 @@ def fit_next_state(experiment,
                    decoder,
                    train_data,
                    valid_data,
-                   mask_missing=True,
+                   mask_missing=False,
                    batches_per_epoch=100,
                    epochs=200,
                    warmup=25,
@@ -79,7 +84,8 @@ def fit_next_state(experiment,
     # Optimize combined encoder-regressor model w.r.t MSE loss
     # We use a learning rate scheduler with warm-up to improve final performance,
     # see: https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/tutorial6/Transformers_and_MHAttention.html
-    model = torch.nn.Sequential(encoder, decoder).to(device)
+    forward_decoder = copy.deepcopy(decoder)
+    model = torch.nn.ModuleList([encoder, decoder, forward_decoder]).to(device)
     model.train()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lrate)
@@ -97,11 +103,11 @@ def fit_next_state(experiment,
 
     # Load training data into replay buffer (set to uniform sampling)
     train_dataloader = PrioritizedReplay(train_data, device=device, alpha=0, beta0=0, max_len=truncate)
-    n_features = len(train_data.filter(regex='x\d+').columns) // 2
+    #n_features = len(train_data.filter(regex='x\d+').columns) // 2
 
     # Callback to evaluate model on valid data (set to deterministic sampling!)
     valid_dataloader = PrioritizedReplay(valid_data, device=device, max_len=truncate)
-    valid_callback = EvaluationCallback(valid_dataloader, mask_missing=mask_missing, n_features=n_features)
+    valid_callback = EvaluationCallback(valid_dataloader, mask_missing=mask_missing)
 
     for ep in range(epochs):
         losses = []
@@ -113,16 +119,22 @@ def fit_next_state(experiment,
             # sample random batch of (s, s') pairs from training data
             states, _, _, next_states, _, _ = train_dataloader.sample(batch_size)
 
-            pred_next_state = model(states)
-            true_next_state = next_states[:, -1, :n_features]
+            encoded_state = encoder(states)
+            pred_state = decoder(encoded_state) # autoencoding
+            pred_next_state = states[:, -1] + forward_decoder(encoded_state) # forward prediction + behavior cloning
+            true_state = states[:, -1]
+            true_next_state = next_states[:, -1]
 
             # mask out missing values if any
             if mask_missing:
-                missing_mask = 1 - states[:, -1, n_features:]
+                with torch.no_grad():
+                    missing_mask = torch.absolute(states[:, -1] - next_states[:, -1]) > 1e-4
                 pred_next_state = pred_next_state * missing_mask
                 true_next_state = true_next_state * missing_mask
 
-            loss = criterion(pred_next_state, true_next_state)
+            loss = criterion(pred_next_state[:, 2:], true_next_state[:, 2:])   # Forward prediction loss
+            loss += 0.2 * criterion(pred_next_state[:, :2], true_next_state[:, :2])  # Behavior cloning loss
+            loss += criterion(pred_state, true_state)                          # Auto-encoding loss
             losses.append(loss.item())
 
             optimizer.zero_grad()
@@ -138,7 +150,7 @@ def fit_next_state(experiment,
 
         # Track training and validation loss
         tracker.add(train_mse=np.mean(losses))
-        tracker.add(**valid_callback(model, batch_size=batch_size))
+        tracker.add(**valid_callback(encoder, decoder, forward_decoder, batch_size=64))
         tracker.save_metrics()
 
         print('\nEp %d/%d: %s' % (ep, epochs, tracker.print_stats()))
@@ -149,7 +161,10 @@ def fit_next_state(experiment,
             print('Model improved! Saving...')
 
         if not save_on or new_best:
-            tracker.save_model_pt(model, 'nsp_model')
+            autoencoder_model = torch.nn.Sequential(encoder, decoder)
+            forward_model = torch.nn.Sequential(encoder, forward_decoder)
+            tracker.save_model_pt(autoencoder_model, 'autoencoder_model')
+            tracker.save_model_pt(forward_model, 'forward_model')
             tracker.save_model_pt(encoder, 'encoder')
 
     print('Done!')
