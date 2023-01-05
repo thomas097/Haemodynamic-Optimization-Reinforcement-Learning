@@ -1,6 +1,6 @@
 This folder includes the state representation learning tasks used to learn representations of patient states for our Q-learning experiments.
 
-It includes:
+`pretraining.py` includes:
 
 - A **behavior cloning** objective (BC)
 - An **action-conditioned forward dynamics modeling** objective (FM)
