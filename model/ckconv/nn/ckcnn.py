@@ -4,7 +4,7 @@ from ckconv_layers import CKBlock
 
 
 class CKCNN(torch.nn.Module):
-    def __init__(self, layer_channels, d_kernel, max_timesteps, kernel_type='siren', use_residuals=True, fourier_input=True):
+    def __init__(self, layer_channels, d_kernel, max_timesteps, kernel_type='siren', use_residuals=True, fourier_input=False):
         """ CKConv block with layer normalization and optional residual connections (Bai et al., 2017)
         :param layer_channels:   Tuples specifying number of channels at each layer starting at the input layer,
                                  e.g. (8, 16, 4) creates a two-layer network mapping from 8 inputs to 4 outputs
@@ -13,7 +13,7 @@ class CKCNN(torch.nn.Module):
         :param max_timesteps:    Maximum number of timesteps in input
         :param kernel_type:      Type of kernel network to use: 'siren'|'relu' (default: 'siren')
         :param use_residuals:    Whether to include a residual connection inside CKConv blocks (default: True)
-        :param fourier_input:    Whether to use fourier features as input to the kernel network
+        :param fourier_input:    Whether to use fourier features as input to the kernel network (default: False)
         """
         super(CKCNN, self).__init__()
         self.config = locals()
@@ -22,9 +22,12 @@ class CKCNN(torch.nn.Module):
         if fourier_input:
             print('Using Fourier kernel inputs')
 
+        # to map input to lower dim reducing the parameters of CKConv
+        self._input_mapping = torch.nn.Linear(layer_channels[0], layer_channels[1])
+
         # CK convolution blocks
         self._blocks = []
-        for i in range(len(layer_channels) - 1):
+        for i in range(1, len(layer_channels) - 1):
             block = CKBlock(
                 in_channels=layer_channels[i],
                 out_channels=layer_channels[i + 1],
@@ -48,7 +51,7 @@ class CKCNN(torch.nn.Module):
         :returns:            Output tensor of shape (batch_size, n_timesteps, out_channels)
                              if `return_last=False`, else (batch_size, out_channels)
         """
-        h = x.permute(0, 2, 1)
+        h = self._input_mapping(x).permute(0, 2, 1)
         y = self._conv_layers(h).permute(0, 2, 1)
         return y[:, -1] if return_last else y
 
