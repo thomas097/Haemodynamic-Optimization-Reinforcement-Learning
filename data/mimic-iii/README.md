@@ -5,7 +5,8 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
 0. First, request access to the MIMIC-III v1.4 database via PhysioNet: 
     - Follow the instructions at: https://physionet.org/content/mimiciii/1.4/
 
-1. Install PostgreSQL from http://www.postgresql.org/download/windows/
+1. Install PostgreSQL 
+    -  Download installer and follow instructions at: http://www.postgresql.org/download
     -  Set (and remember) password, e.g. `postgrespass0123!`
 
 2. Launch the *psql* client
