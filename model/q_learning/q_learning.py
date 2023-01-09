@@ -106,7 +106,7 @@ def fit_double_dqn(
         num_episodes=1,
         lrate=1e-3,
         gamma=0.9,
-        tau=1e-2,
+        tau=1e-3,
         replay_alpha=0.4,
         replay_beta=0.6,
         batch_size=32,
@@ -127,7 +127,7 @@ def fit_double_dqn(
 
     # track performance and hyperparameters of experiment/models
     tracker = PerformanceTracker(experiment)
-    tracker.save_experiment_config(policy=policy.config, encoder=encoder.config, experiment=locals())
+    #tracker.save_experiment_config(policy=policy.config, encoder=encoder.config, experiment=locals())
 
     # use target network for stability
     model = torch.nn.Sequential(encoder, policy).to(device)
@@ -141,6 +141,12 @@ def fit_double_dqn(
     for w in model.parameters():
         if w.requires_grad:
             w.register_hook(lambda grad: torch.clamp(grad, -1, 1))
+
+    # freeze encoder by disabling gradients
+    if freeze_encoder:
+        print('Freezing encoder')
+        for w in encoder.parameters():
+            w.requires_grad = False
 
     #####################
     #     Training      #
@@ -169,11 +175,11 @@ def fit_double_dqn(
             next_target_state_value = torch.clamp(next_target_state_value, min=min_max_reward[0], max=min_max_reward[1])
 
             # mask future reward at terminal state
-            reward_mask = (rewards == 0).float()
+            #reward_mask = (rewards == 0).float()
 
             # compute target Q value
             next_model_action = torch.argmax(model(next_states), dim=1, keepdim=True)
-            q_target = rewards + gamma * next_target_state_value.gather(dim=1, index=next_model_action) * reward_mask
+            q_target = rewards + gamma * next_target_state_value.gather(dim=1, index=next_model_action) #* reward_mask
 
         # loss + regularization
         loss = weighted_MSE_loss(q_pred, q_target, weights)

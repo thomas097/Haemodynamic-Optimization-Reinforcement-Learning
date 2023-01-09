@@ -20,6 +20,9 @@ class PerformanceTracker:
         self._path = self._path + '_' + str(num_prev).zfill(5)  # e.g. ckcnn_experiment_00001
         os.makedirs(self._path)
 
+    def get(self, metric, index=-1):
+        return self._scores[metric][index]
+
     def add(self, **kwargs):
         """ Add metric=value pair to PerformanceTracker """
         for metric, value in kwargs.items():
@@ -27,7 +30,7 @@ class PerformanceTracker:
                 self._metrics.append(metric)
             self._scores[metric].append(value)
 
-    def new_best(self, metric, maximize=False):
+    def new_best(self, metric, maximize=True):
         """ Checks whether last score on metric was best seen during training.
         """
         if metric not in self._metrics:
