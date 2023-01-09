@@ -1,3 +1,4 @@
+In this folder the source code is provided for the extraction of patient trajectories from MIMIC-III
 
 ## Instructions
 To extract the MIMIC-III dataset as used in our paper, please follow the following steps:
