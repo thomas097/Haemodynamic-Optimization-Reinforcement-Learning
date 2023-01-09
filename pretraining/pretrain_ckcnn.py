@@ -8,8 +8,8 @@ from utils import count_parameters
 
 if __name__ == '__main__':
     # Training and validation dataset
-    train_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv')
+    train_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/train.csv')
+    valid_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/valid.csv')
 
     in_channels = train_df.filter(regex='x\d+').shape[1]
     out_channels = 96
@@ -18,7 +18,7 @@ if __name__ == '__main__':
     ckcnn = CKCNN(
         layer_channels=(in_channels, 32, 32),
         d_kernel=56,
-        max_timesteps=80,
+        max_timesteps=128,
         kernel_type='siren',
         fourier_input=False,
         use_residuals=True,
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     # Train!
     fit_multi_task(
         task='mt',
-        experiment='results/amsterdam-umc-db/ckcnn_siren_combined_pretraining_128dims',
+        experiment='results/amsterdam-umc-db/ckcnn_siren_mt_pretraining',
         encoder=ckcnn,
         in_channels=in_channels,
         out_channels=out_channels,

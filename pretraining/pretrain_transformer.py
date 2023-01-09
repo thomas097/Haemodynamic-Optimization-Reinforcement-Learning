@@ -8,8 +8,8 @@ from utils import count_parameters, load_pretrained
 
 if __name__ == '__main__':
     # Training and validation dataset
-    train_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/train.csv')
-    valid_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv')
+    train_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/train.csv')
+    valid_df = pd.read_csv('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/valid.csv')
 
     in_channels = train_df.filter(regex='x\d+').shape[1]
     out_channels = 96
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     # Train!
     fit_multi_task(
         task='mt',
-        experiment='results/amsterdam-umc-db/transformer_combined_pretraining_128dims',
+        experiment='results/transformer_mt_pretraining',
         encoder=transformer,
         in_channels=in_channels,
         out_channels=out_channels,
@@ -37,7 +37,7 @@ if __name__ == '__main__':
         valid_data=valid_df,
         mask_missing=True,
         lrate=5e-4,
-        epochs=300,
+        epochs=200,
         batches_per_epoch=500,
         warmup=50,
         truncate=256,
