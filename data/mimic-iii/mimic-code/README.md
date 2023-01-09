@@ -1,2 +1,1 @@
-Place contents of MIMIC-code in this directory:
-- mimic-code/concepts: https://github.com/MIT-LCP/mimic-code/tree/main/mimic-iii/concepts
+Courtesy of Roggeveen et al. Original source code can be found at https://github.com/LucaMD/SRL
