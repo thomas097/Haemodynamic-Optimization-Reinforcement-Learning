@@ -2,11 +2,8 @@
 Author:   Thomas Bellucci
 Filename: ckconv_layers.py
 Descr.:   Implements a 1D convolutional layer using a continuous kernel parameterization
-          using SIRENs (Sitzmann et al., 2020) meant for irregularly-sampled time series.
-          Code is based on an earlier implementation of CKConv (Romero et al., 2021),
-          which can be found at https://github.com/dwromero/ckconv. Our version unrolls
-          the convolution operation into a matrix-product, allowing the kernel to vary
-          at each time step as a function of the other point's relative positions.
+          using SIRENs (Sitzmann et al., 2020). Code is based on an earlier implementation
+          of CKConv (Romero et al., 2021), which can be found at https://github.com/dwromero/ckconv.
 Date:     01-10-2022
 """
 
@@ -60,7 +57,7 @@ class ReLULayer(torch.nn.Module):
 class FourierInput(torch.nn.Module):
     def __init__(self, out_channels, stdev=1.0):
         """ Fourier input implementation as proposed in (Tancik et al., 2020)
-        For details, see: https://bmild.github.io/fourfeat/
+        For details, see: https://bmild.github.io/fourfeat
         :param out_channels:  Number of outputs of the Fourier mapping
         :param stdev:         Standard deviation of Gaussian kernel (default: 1.0)
         """
