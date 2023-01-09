@@ -1,3 +1,5 @@
+In this folder the source code is provided for the extraction of patient trajectories from the AmsterdamUMCdb
+
 ## Instructions
 
 0. Request access to the AmsterdamUMCdb database via https://amsterdammedicaldatascience.nl/amsterdamumcdb/
