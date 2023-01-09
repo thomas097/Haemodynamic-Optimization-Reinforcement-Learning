@@ -10,7 +10,7 @@ plt.rcParams.update({'font.size': 32})
 plt.rcParams["font.family"] = "Times New Roman"
 
 if __name__ == '__main__':
-    # PHWDR scores for 32, 64, 96 and 128 dims as tuples of the form (score, margin)
+    # PHWDR scores for 32, 64, 96 and 128 dims
     phwdr_scores = {
         'AmsterdamUMCdb': {
             'Transformer': [3.054, 3.294, 3.514, 3.434],
@@ -21,7 +21,7 @@ if __name__ == '__main__':
             'CKCNN': [1.945, 2.055, 2.549, 2.557]
         }
     }
-    # MSE score on validation set with learning objective MT
+    # MSE score on validation set of MT learning objective
     valid_mse_scores = {
         'AmsterdamUMCdb': {
             'Transformer': [1.972580575354539734e-01, 1.460090684378222980e-01, 1.105699224789051527e-01, 1.295924582726256935e-01],
