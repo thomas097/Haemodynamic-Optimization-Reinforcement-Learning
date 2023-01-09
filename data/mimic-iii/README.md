@@ -12,8 +12,8 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
 2. Launch the *psql* client
     - Leave everything blank except when asked to provide the password
     
-3. Download and place MIMIC-Code concept-extraction files into folder `mimic-code`
-    - Found at: https://github.com/MIT-LCP/mimic-code/tree/main/mimic-iii/concepts
+3. Download and place MIMIC-Code concept-extraction files into folder `mimic-code/mimic-code`
+    - Files can be found at: https://github.com/MIT-LCP/mimic-code/tree/main/mimic-iii/concepts
 
 4. Execute the following commands to build a MIMIC-III database:
    - `$ DROP DATABASE IF EXISTS mimic;`
@@ -35,7 +35,7 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
 Check whether a table `patient_cohort` is included in the list. If so, everything was succesful!
 
 6. Extract materialized views of tables to obtain dataset in CSV format
-   - `$ \cd '<PATH_TO_REPO>/data/mimic-iii/mimic-concepts'`
+   - `$ \cd '<PATH_TO_REPO>/data/mimic-iii/mimic-extraction'`
    - `$ \i extract_dataset.sql`
    
 7. Go to `<PATH_TO_REPO>/preprocessing` and follow the steps in `DataPreprocessing_Aggregated.ipynb`
