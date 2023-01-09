@@ -1,7 +1,9 @@
 ## Instructions
 
-- Run `DataExtraction_AmsterdamUMCdb_AllAdmissions.ipynb`
-   - Make sure to change the path `OUT_DIR` to specify the desired output location and modify the paths of the data files
+0. Request access to the AmsterdamUMCdb database via https://amsterdammedicaldatascience.nl/amsterdamumcdb/
+
+1. Run `DataExtraction_AmsterdamUMCdb_AllAdmissions.ipynb`
+   - Make sure to change the path `OUT_DIR` to specify the desired output location and modify the paths of the data files to the directories where the source files are located
 
 **Warning:** the AmsterdamUMCdb source files contain many gigabytes of data. It is therefore recommended to have at least 120GB of harddisk space available and have at least 8 GB of working memory
 
