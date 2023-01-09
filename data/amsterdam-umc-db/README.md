@@ -1,5 +1,9 @@
-##
+## Instructions
 
+- Run `DataExtraction_AmsterdamUMCdb_AllAdmissions.ipynb`
+   - Make sure to change the path `OUT_DIR` to specify the desired output location and modify the paths of the data files
+
+**Warning:** the AmsterdamUMCdb source files contain many gigabytes of data. It is therefore recommended to have at least 120GB of harddisk space available and have at least 8 GB of RAM memory
 
 ## Tables Generated
 After running the data extraction pipeline, the following tables with the following columns is created
