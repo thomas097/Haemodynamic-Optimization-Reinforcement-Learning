@@ -1,1 +1,1 @@
-In this directory all source code related to the experiments carried out are located
+In this directory all source code related to the policy training and experiments are located. To train models on Google Colaboratory, please follow the instruction in [train_dqn_pretrained_with_gpu.ipynb](https://colab.research.google.com/drive/1vhRutPr4V3JKUzHhgkCUzbP8elWfaFN3?usp=sharing)
