@@ -7,7 +7,7 @@ from sklearn.preprocessing import label_binarize
 
 
 class MLP(torch.nn.Module):
-    def __init__(self, state_dims, num_actions, hidden_dims=24):
+    def __init__(self, state_dims, num_actions, hidden_dims=64):
         """ Simple Multi-Layer Perceptron for estimating the FQE Q-function
         :param state_dims:  Number of state space features
         :param num_actions: Number of actions

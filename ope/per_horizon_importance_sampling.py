@@ -16,8 +16,8 @@ class PHWIS:
         self._last_weights = None
 
         # compute horizon of each episode and add time step column
-        horizon = behavior_df.groupby('episode').size()
-        timesteps = behavior_df.groupby('episode').action.transform(lambda ep: np.arange(len(ep)))
+        horizon = behavior_df.groupby('episode', sort=False).size()
+        timesteps = behavior_df.groupby('episode', sort=False).action.transform(lambda ep: np.arange(len(ep)))
 
         # combine into DataFrame
         self._df = pd.DataFrame({
@@ -62,15 +62,15 @@ class PHWIS:
             df = df[df.episode.isin(episodes)]
 
         # compute importance weight at each timestep and normalize over episodes of the same length
-        df['rho'] = df.groupby('episode').ratio.cumprod()
-        df['norm_rho'] = df.groupby(['horizon', 'timestep']).rho.apply(lambda rho: self._normalize(rho))
+        df['rho'] = df.groupby('episode', sort=False).ratio.cumprod()
+        df['norm_rho'] = df.groupby(['horizon', 'timestep'], sort=False).rho.apply(lambda rho: self._normalize(rho))
 
         # track weights at terminal state to compute effective sample size
-        self._last_weights = [w.norm_rho.values[h - 1::h] for h, w in df.groupby('horizon')]
+        self._last_weights = [w.norm_rho.values[h - 1::h] for h, w in df.groupby('horizon', sort=False)]
 
         # compute contribution of horizon Wh as support '#episodes with horizon' / '#episodes'
         n_episodes = df.episode.nunique()
-        df['wh'] = df.groupby('horizon').episode.transform(lambda x: x.nunique()) / n_episodes
+        df['wh'] = df.groupby('horizon', sort=False).episode.transform(lambda x: x.nunique()) / n_episodes
         return df
 
     def _normalize(self, ratios):
