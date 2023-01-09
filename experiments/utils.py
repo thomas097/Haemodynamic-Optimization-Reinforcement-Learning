@@ -21,9 +21,8 @@ class OPECallback:
         self._phys_ent = PhysicianEntropy(behavior_policy_file)
         self._batch_size = batch_size
 
-    def _softmax(self, x, temp=2):
-        z = np.exp(x / temp)
-        return z / np.sum(z, axis=1, keepdims=True)
+    def _softmax(self, x):
+        return np.exp(x) / np.sum(np.exp(x), axis=1, keepdims=True)
 
     def __call__(self, model):
         """ Evaluated encoder-policy pair using Weighted Importance Sampling on validation set
@@ -80,3 +79,12 @@ def load_pretrained(path):
 def count_parameters(model):
     """ Computes the number of learnable parameters """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def add_intermediate_reward(df, scale=0.5):
+    reward = df.reward
+    reward -= scale * (df.reward_mean_bp < 65) * (65 - df.reward_mean_bp) # mmHg
+    # reward -= scale * (df.reward_sys_bp > 120)  # mmHg
+    # reward -= scale * (df.reward_sys_bp < 100)  # mmHg
+    # reward -= scale * ((df.reward_lactate > 2) * df.reward_lactate - 2)  # mmol/L
+    return reward
