@@ -1,1 +1,1 @@
-MIMIC-Code sql files to upload MIMIC into PostgreSQL
+This folder contains the SQL files used to build the PostgreSQL database from the MIMIC-III source files.
