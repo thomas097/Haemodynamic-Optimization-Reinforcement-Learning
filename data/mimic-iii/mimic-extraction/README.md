@@ -1,0 +1,1 @@
+This folder contains all scripts to extract patient trajectories of vitals, lab results, demographics and intake/output events from MIMIC-III. The results are later preprocessed by `DataPreprocessing_Aggergated.ipynb` in `/preprocessing`
