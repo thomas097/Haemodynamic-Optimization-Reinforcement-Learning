@@ -66,10 +66,8 @@ def calibration_plot(policy, dataset, bins=50, batch_size=64):
     plt.show()
 
 
-
-
 if __name__ == '__main__':
-    policy = load_pretrained("../results/transformer_nsp_experiment_200000/model.pt")
+    policy = load_pretrained("../results/amsterdam-umc-db/ckcnn_experiment_00000/model.pt")
     dataset = load_data("../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/train.csv")
     features = load_txt("../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/state_space_features.txt")
 

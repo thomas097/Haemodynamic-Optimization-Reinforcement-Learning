@@ -21,15 +21,14 @@ def get_num_episodes(path):
     return len(load_performance_metrics(path, 'loss'))
 
 
-def main(in_dir, paths, metric, smooth_over_episodes=500):
+def main(paths, metric, smooth_over_episodes=500):
     # Plot validation scores over training episodes
     for i, (name, path) in enumerate(paths.items()):
         # Load scores
-        full_path = os.path.join(in_dir, path)
-        scores = load_performance_metrics(full_path, metric=metric)
+        scores = load_performance_metrics(path, metric=metric)
 
         # Create vector of timesteps
-        num_episodes = get_num_episodes(full_path)
+        num_episodes = get_num_episodes(path)
         episode = np.linspace(0, num_episodes, scores.shape[0])
 
         # Smooth scores using box-kernel of x-episodes
@@ -48,11 +47,11 @@ def main(in_dir, paths, metric, smooth_over_episodes=500):
 
 
 if __name__ == '__main__':
-    paths = {'Transformer (pretrained - NSP)': 'transformer_nsp_experiment_200000'}
+    paths = {'Transformer (pretrained - NSP)': '../results/amsterdam-umc-db/transformer_experiment_00000',
+             'Last state': '../results/amsterdam-umc-db/last_state_experiment_00000'}
 
     metrics = ['loss', 'avg_Q_value', 'max_Q_value', 'chosen_action_Q_value', 'phwis', 'ess', 'physician_entropy']
-    in_dir = '../results/'
 
     for metric in metrics:
-        main(in_dir, paths, metric, smooth_over_episodes=300)
+        main(paths, metric, smooth_over_episodes=300)
 

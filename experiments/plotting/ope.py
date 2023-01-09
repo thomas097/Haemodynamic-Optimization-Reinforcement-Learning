@@ -62,7 +62,7 @@ def conf_interval(scores, conf_level):
     median = np.median(scores)
     lower = np.quantile(scores, q=0.25)
     upper = np.quantile(scores, q=0.75)
-    return '%.3f [%.3f / %.3f]' % (median, lower, upper)
+    return '%.3f (±%.3f) [%.3f - %.3f]' % (median, upper - median, lower, upper)
 
 
 def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=256, lrate=1e-2, iters=15000,
@@ -80,7 +80,8 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     :param fraction:              Fraction of episodes to construct each bootstrap set (default: 0.8)
     :param conf_level:            Confidence level (default: 0.95)
     """
-    # make reproducible
+    print(policy_file)
+    # make evaluation reproducible
     random.seed(seed)
 
     # get policy's action probs for states in dataset
@@ -93,6 +94,7 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     # fit WDR's FQE estimator to policy
     wdr = WeightedDoublyRobust(behavior_policy_file, mdp_training_file=dataset_file, method='fqe', lrate=lrate,
                                gamma=gamma, iters=iters)
+    print('PHWIS (ESS):', wdr.phwis(action_probs), '(%.2f)' % wdr.phwis.ess)
     wdr.fit(action_probs)
 
     # list episodes from which to bootstrap
@@ -112,12 +114,11 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
         # metrics
         phwis_score = wdr.phwis(action_probs, episodes=bootstrap_set)
         ess_score = wdr.phwis.ess
-        wdr_score = wdr(action_probs, episodes=bootstrap_set)
-        fqe_score = wdr.dm.state_value(action_probs, episodes=bootstrap_set)
+        wdr_score, fqe_score = wdr(action_probs, episodes=bootstrap_set) # FQE is computed as part of WDR computation
 
         # Limit fqe to starting states only
         bootstrap_dataset = dataset[dataset.episode.isin(bootstrap_set)].copy().reset_index(drop=True)
-        first_state_idx = [ep.index[0] for _, ep in bootstrap_dataset.groupby('episode')]
+        first_state_idx = [ep.index[0] for _, ep in bootstrap_dataset.groupby('episode', sort=False)]
         fqe_score = np.mean(fqe_score[first_state_idx])
 
         phwis_scores.append(phwis_score)
@@ -135,27 +136,29 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     print(result)
 
 
-def save_tail(path, fname, maxlen=10):
+def save_tail(path, fname, maxlen=256):
     df = pd.read_csv(path)
-    df = df.groupby('episode', as_index=False).tail(maxlen)
+    df = df.groupby('episode', as_index=False, sort=False).tail(maxlen)
     df.to_csv(fname, index=False)
     return fname
 
 
 if __name__ == '__main__':
+    dataset_file = '../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/test.csv'
+    behavior_policy_file = '../../ope/physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/test_behavior_policy.csv'
+    model = '../results/amsterdam-umc-db/transformer_experiment_00000/model.pt'
+
     # Truncate episodes to fix degeneracy problem
-    save_tail('../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/valid.csv',
-              'valid_tmp.csv', maxlen=24)
-    save_tail('../../ope/physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv',
-              'behavior_policy_tmp.csv', maxlen=24)
+    save_tail(dataset_file, 'valid_tmp.csv', maxlen=32)
+    save_tail(behavior_policy_file, 'behavior_policy_tmp.csv', maxlen=32)
 
     evaluate_policy(
-        policy_file='../results/last_state_experiment_00001/model.pt',
+        policy_file=model,
         dataset_file='valid_tmp.csv',
         behavior_policy_file='behavior_policy_tmp.csv',
-        lrate=0.1,
-        iters=2000,
+        lrate=0.05,
+        iters=1000,
         gamma=0.95,
-        n_bootstraps=100,
-        fraction=0.9,
+        n_bootstraps=1000,
+        fraction=0.75,
     )
