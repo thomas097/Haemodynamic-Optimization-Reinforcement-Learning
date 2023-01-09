@@ -33,7 +33,7 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
    - `$ \i make-tables.sql`
    - `$ \dt`
 
-Check whether a table `patient_cohort` is included in the list. If so, everything was succesful!
+**Sanity Check:**: check whether a table `patient_cohort` is included in the list; if so, everything was succesful!
 
 6. Go to `<PATH_TO_REPO>/data/mimic-iii/mimic-extraction/extract_dataset.sql` and change paths to repo
 
