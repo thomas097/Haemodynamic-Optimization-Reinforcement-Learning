@@ -35,7 +35,7 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
 
 Check whether a table `patient_cohort` is included in the list. If so, everything was succesful!
 
-6. Go to `<PATH_TO_REPO>/data/mimic-iii/mimic-extraction/extract_dataset.sql` and change path names to `<PATH_TO_REPO>/data/mimic-iii/final/<CSV FILE NAME>`
+6. Go to `<PATH_TO_REPO>/data/mimic-iii/mimic-extraction/extract_dataset.sql` and change paths to repo
 
 7. Extract materialized views of tables to obtain dataset in CSV format
    - `$ \cd '<PATH_TO_REPO>/data/mimic-iii/mimic-extraction'`
