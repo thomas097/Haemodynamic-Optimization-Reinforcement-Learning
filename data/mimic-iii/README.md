@@ -46,7 +46,7 @@ Check whether a table `patient_cohort` is included in the list. If so, everythin
    - `extract_mimic-iii_hematocrit_d-dimer_svo2.ipynb`
    - `extract_reason_for_admission.ipynb`
    
-8. Go to `<PATH_TO_REPO>/preprocessing` and run `DataPreprocessing_Aggregated.ipynb`
+9. Go to `<PATH_TO_REPO>/preprocessing` and run `DataPreprocessing_Aggregated.ipynb`
 
 The result should be a triplet of datasets `train.csv`, `test.csv` and `valid.csv` along with some metadata files stored in a folder `<PATH_TO_REPO>/preprocessing/datasets/mimic-iii/aggregated_full_cohort_*h`.
     
