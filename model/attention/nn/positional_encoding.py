@@ -38,9 +38,12 @@ class PositionalEncoding(torch.nn.Module):
 if __name__ == '__main__':
     # Sanity Check: does PE look right?
     import matplotlib.pyplot as plt
+    plt.rcParams["font.family"] = "Times New Roman"
+
+    DIMS = 32
 
     t = torch.arange(128).float().unsqueeze(0)
-    pe = PositionalEncoding(embedding_dim=64)
+    pe = PositionalEncoding(embedding_dim=DIMS)
     pe_t = pe(t.float()).detach().numpy()[0]
 
     plt.matshow(pe_t)
@@ -51,11 +54,14 @@ if __name__ == '__main__':
 
     # Cosine distance?
     pe_t = pe_t / np.linalg.norm(pe_t, axis=1, keepdims=True)
-    dist_mat = pe_t.dot(pe_t.T)
-    plt.matshow(dist_mat)
-    plt.title('Dot product - Positional Encoding')
-    plt.xlabel('Keys')
-    plt.ylabel('Queries')
+    dist_mat = 1 - pe_t.dot(pe_t.T)
+
+    plt.figure(figsize=(4, 4))
+    plt.imshow(dist_mat)
+    plt.title('Cosine Distance - Sin-Cos PE ($d_{model}$ = %d)' % DIMS)
+    plt.xlabel('Time step (keys)')
+    plt.ylabel('Time step (queries)')
+    plt.tight_layout()
     plt.show()
 
 
