@@ -24,6 +24,10 @@ A Python installation 3.8+ with the following libraries installed:
 - tqdm
 - seaborn
 
+#### Installation
+- Run:
+    - `pip install -r requirements.txt`
+
 ## Structure
 
 The repository is organized as follows:
