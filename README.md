@@ -84,6 +84,13 @@ For physician's policy OPE results, replace `model` by filename of behavior poli
 2. Run `action_matrices.py`
   
 
-### Training new policies
+### Pretraining an encoder
 
-TODO
+A different script was used to train each of the encoders:
+
+**Transformer**: In `pretraining/pretrain_transformer.py` set `task` to pretraining objective of choice (either of `ae|fp|bc|mt`) and run script.<br>
+**CKCNN**: In `pretraining/pretrain_ckcnn.py` set `task` to pretraining objective of choice (either of `ae|fp|bc|mt`) and run script.
+
+### Training a policy
+
+In `experiments/train_dqn_pretrained.py` and set paths to training and validation datasets of choice and set `behavior_policy_file` to the behavior policy estimated for this dataset. Set `encoder` path to location of pretrained encoder and run script.
