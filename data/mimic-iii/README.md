@@ -50,7 +50,7 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
    
 9. Go to `<PATH_TO_REPO>/preprocessing` and run `DataPreprocessing_Aggregated.ipynb`
 
-The result should be a triplet of datasets `train.csv`, `test.csv` and `valid.csv` along with some metadata files stored in a folder `<PATH_TO_REPO>/preprocessing/datasets/mimic-iii/aggregated_full_cohort_*h`.
+The result should be three datasets `train.csv`, `test.csv` and `valid.csv` along with some metadata files stored in a folder `<PATH_TO_REPO>/preprocessing/datasets/mimic-iii/aggregated_full_cohort_*h`.
     
 ## Credits
 The data extraction pipeline was partly based on and inspired by earlier work by Roggeveen et al. (2021) which can be found at [github.com/LucaMD/SRL](https://github.com/LucaMD/SRL).
