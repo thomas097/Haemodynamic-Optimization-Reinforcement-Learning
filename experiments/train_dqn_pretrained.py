@@ -9,7 +9,7 @@ if __name__ == '__main__':
     train_df = load_data('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/train.csv')
     valid_df = load_data('../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/valid.csv')
 
-    # Add intermediate rewards based on MAP and lactate
+    # Add intermediate rewards based on MAP
     train_df.reward = add_intermediate_reward(train_df)
     valid_df.reward = add_intermediate_reward(valid_df)
 
@@ -23,7 +23,7 @@ if __name__ == '__main__':
     callback = OPECallback(behavior_policy_file=behavior_policy_file, valid_data=valid_df)
 
     fit_double_dqn(
-        experiment='results/amsterdam-umc-db/latent_dims_results/ckcnn_128dims_pretraining',
+        experiment='results/amsterdam-umc-db/transformer_mt_experiment',
         policy=dqn,
         encoder=encoder,
         dataset=train_df,
