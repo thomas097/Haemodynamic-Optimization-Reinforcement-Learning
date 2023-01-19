@@ -25,7 +25,13 @@ A Python installation 3.8+ with the following libraries installed:
 - seaborn
 
 #### Installation
-- Run:
+0. (optional) we recommended to create a fresh virtual environment to ensure no clashing of library versions:
+    - With python 3.8+ installed, open a command prompt
+    - Navigate to repository, e.g. `cd C:/Users/<USER>/Desktop/<REPOSITORY_NAME>`
+    - Call `python -m venv thesis_venv`
+    - Call `thesis_venv\Scripts\activate` to activate virtual environment 
+    
+1. Install libraries:
     - `pip install -r requirements.txt`
 
 ## Structure
