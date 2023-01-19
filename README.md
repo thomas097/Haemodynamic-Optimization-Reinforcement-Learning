@@ -55,15 +55,15 @@ The repository is organized as follows:
 ## Instructions
 
 ### Reproducing the Reported Results
-To reproduce the performance results with OPE of the report:
+To reproduce the results reported in the thesis, follow the following steps:
 
 #### Preliminaries
-1. Download models from **ADD LINK TO DRIVE!** and unpack in `experiments/results`
-    - You should have a folder structure as `experiments/results/<DATASET_NAME>/<EXPERIMENT_NAME>`
-2. Download datasets from **ADD LINK TO DRIVE!** and unpack in `preprocessing/datasets`
-3. Download pre-estimated behavior/physician policies from **ADD LINK TO DRIVE!** and unpack in `ope/physician_policy`  
+1. Download models, preprocessed datasets and estimated behavior policies from **ADD LINK TO DRIVE!** 
+    - Unpack models in `experiments/results`. You should have a folder structure as `experiments/results/<DATASET_NAME>/<EXPERIMENT_NAME>`
+    - Unpack datasets in `preprocessing/datasets`
+    - Unpack behavior policies for MIMIC-III/AmsterdamUMCdb in `ope/physician_policy`  
 
-#### Reproducing Evaluation Results
+#### OPE Evaluation Results
   
 1. Navigate to `experiments/plotting/ope.py`:
     - Set `model` path to the location of the model to be evaluated, e.g. `../results/amsterdam-umc-db/transformer_experiment_00000/model.pt`
@@ -83,3 +83,7 @@ For physician's policy OPE results, replace `model` by filename of behavior poli
   
 2. Run `action_matrices.py`
   
+
+### Training new policies
+
+TODO
