@@ -13,7 +13,7 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
 2. Launch the *psql* client
     - Leave everything blank except when asked to provide the password
     
-3. Download and place MIMIC-Code concept-extraction files into folder `mimic-code/mimic-code`
+3. Download and place MIMIC-Code concept-extraction files into folder `mimic-code/mimic-code` as a new folder `concepts`
     - Files can be found at: https://github.com/MIT-LCP/mimic-code/tree/main/mimic-iii/concepts
 
 4. Execute the following commands to build a MIMIC-III database:
