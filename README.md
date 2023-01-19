@@ -49,27 +49,27 @@ To reproduce the performance results with OPE of the report:
 
 #### Preliminaries
 1. Download models from **ADD LINK TO DRIVE!** and unpack in `experiments/results`
-  -- You should have a folder structure as `experiments/results/<DATASET_NAME>/<EXPERIMENT_NAME>`
+    - You should have a folder structure as `experiments/results/<DATASET_NAME>/<EXPERIMENT_NAME>`
 2. Download datasets from **ADD LINK TO DRIVE!** and unpack in `preprocessing/datasets`
 3. Download pre-estimated behavior/physician policies from **ADD LINK TO DRIVE!** and unpack in `ope/physician_policy`  
 
 #### Reproducing Evaluation Results
   
 1. Navigate to `experiments/plotting/ope.py`:
-  - Set `model` path to the location of the model to be evaluated, e.g. `../results/amsterdam-umc-db/transformer_experiment_00000/model.pt`
-  - Set `dataset_file ` path to the location of the dataset to evaluate model on, e.g. '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/test.csv'
-  - Set `behavior_policy_file ` path to location of pre-estimated behavior policy, e.g. '../../ope/physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_mlp/test_behavior_policy.csv'
+    - Set `model` path to the location of the model to be evaluated, e.g. `../results/amsterdam-umc-db/transformer_experiment_00000/model.pt`
+    - Set `dataset_file ` path to the location of the dataset to evaluate model on, e.g. '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/test.csv'
+    - Set `behavior_policy_file ` path to location of pre-estimated behavior policy, e.g. '../../ope/physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_mlp/test_behavior_policy.csv'
   
 2. Run `ope.py`
-  - This might take a while as an FQE model is fit onto the action distribution of the policy network
+    - This might take a while as an FQE model is fit onto the action distribution of the policy network
   
 For physician's policy OPE results, replace `model` by filename of behavior policy file, i.e. `model = behavior_policy_file`
 
 #### Action matrices
 
 1. Navigate to `experiments/plotting/action_matrices.py`
-  - Set `dataset_file ` path to the location of the dataset to evaluate model on, e.g. '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/test.csv'
-  - Set `dataset_label` to `mimic-iii` or `amsterdam-umc-db` (depending on the dataset chosen)
+    - Set `dataset_file ` path to the location of the dataset to evaluate model on, e.g. '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/test.csv'
+    - Set `dataset_label` to `mimic-iii` or `amsterdam-umc-db` (depending on the dataset chosen)
   
 2. Run `action_matrices.py`
   
