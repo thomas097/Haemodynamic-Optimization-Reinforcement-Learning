@@ -1,4 +1,4 @@
-In this folder the source code is provided for the extraction of patient trajectories from MIMIC-III
+In this folder the source code is provided for the extraction of patient trajectories from MIMIC-III. 
 
 ## Instructions
 To extract the MIMIC-III dataset as used in our paper, please follow the following steps:
@@ -52,4 +52,5 @@ To extract the MIMIC-III dataset as used in our paper, please follow the followi
 
 The result should be a triplet of datasets `train.csv`, `test.csv` and `valid.csv` along with some metadata files stored in a folder `<PATH_TO_REPO>/preprocessing/datasets/mimic-iii/aggregated_full_cohort_*h`.
     
-    
+## Credits
+The data extraction pipeline was partly based on and inspired by earlier work by Roggeveen et al. (2021) which can be found at [github.com/LucaMD/SRL](https://github.com/LucaMD/SRL).
