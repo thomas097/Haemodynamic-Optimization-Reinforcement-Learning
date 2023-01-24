@@ -60,8 +60,8 @@ def conf_interval(scores, conf_level):
     :param conf_level:  Confidence level (default: 0.95)
     """
     median = np.median(scores)
-    lower = np.quantile(scores, q=0.25)
-    upper = np.quantile(scores, q=0.75)
+    lower = np.quantile(scores, q=(1 - conf_level) / 2)
+    upper = np.quantile(scores, q=conf_level + (1 - conf_level) / 2)
     return '%.3f (±%.3f) [%.3f - %.3f]' % (median, upper - median, lower, upper)
 
 
@@ -80,7 +80,7 @@ def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=
     :param fraction:              Fraction of episodes to construct each bootstrap set (default: 0.8)
     :param conf_level:            Confidence level (default: 0.95)
     """
-    print(policy_file)
+    print('Evaluating:', policy_file)
     # make evaluation reproducible
     random.seed(seed)
 
@@ -144,8 +144,8 @@ def save_tail(path, fname, maxlen=256):
 
 
 if __name__ == '__main__':
-    dataset_file = '../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/test.csv'
-    behavior_policy_file = '../../ope/physician_policy/amsterdam-umc-db_v3_aggregated_full_cohort_2h_mlp/test_behavior_policy.csv'
+    dataset_file = '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/valid.csv'
+    behavior_policy_file = '../../ope/physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv'
     model = '../results/amsterdam-umc-db/transformer_experiment_00000/model.pt'
 
     # Truncate episodes to fix degeneracy problem
