@@ -73,7 +73,7 @@ To reproduce the results reported in the thesis, follow the following steps:
 2. Run `ope.py`
     - This might take a while as an FQE model is fit onto the action distribution of the policy network
   
-For physician's policy OPE results, replace `model` by filename of behavior policy file, i.e. `model = behavior_policy_file`
+For physician's policy OPE results, replace `model` by filename of behavior policy file, i.e. `model = 'behavior_policy_tmp.csv'`
 
 #### Action matrices
 
