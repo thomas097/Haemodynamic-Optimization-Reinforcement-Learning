@@ -55,8 +55,8 @@ class WeightedDoublyRobust:
         # compute weight at t-1 by shifting the computed ratios forward by one timestep
         # Note: as rho[t-1] is not known for t=0, we choose to set the first time step of
         # each admission as norm_rho[t-1] = 1 / num_episodes
-        # ratios['norm_rho_prev'] = ratios.groupby('episode').norm_rho.shift(periods=1)
-        # ratios.loc[ratios.norm_rho_prev.isna(), 'norm_rho_prev'] = 1 / ratios.episode.nunique()
+        ratios['norm_rho_prev'] = ratios.groupby('episode').norm_rho.shift(periods=1)
+        ratios.loc[ratios.norm_rho_prev.isna(), 'norm_rho_prev'] = 1 / ratios.episode.nunique()
 
         # estimate state value V and state-action value Q using model
         ratios['V'] = self.dm.state_value(pi_e, episodes=episodes)
