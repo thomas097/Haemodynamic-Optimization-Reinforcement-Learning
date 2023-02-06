@@ -1,4 +1,4 @@
-# Reinforcement learning with self-supervised state representations for hemodynamic support at the ICU $^\star$
+# Reinforcement Learning with Self-Supervised State Representations for Hemodynamic Support at the ICU
 
 This repository contains the source code accompanying the MSc thesis <i>"Reinforcement learning with self-supervised state representations for hemodynamic support at the ICU"</i> in partial fulfillment of the degree of MSc Artificial Intelligence at the Vrije Universiteit (VU), Amsterdam.
 
