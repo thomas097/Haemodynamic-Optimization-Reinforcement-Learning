@@ -75,13 +75,18 @@ To reproduce the results reported in the thesis, follow the following steps:
   
 For physician's policy OPE results, replace `model` by filename of behavior policy file, i.e. `model = 'behavior_policy_tmp.csv'`
 
-#### Action matrices
+#### Action Matrices
 
 1. Navigate to `experiments/plotting/action_matrices.py`
     - Set `dataset_file ` path to the location of the dataset to evaluate model on, e.g. '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/test.csv'
     - Set `dataset_label` to `mimic-iii` or `amsterdam-umc-db` (depending on the dataset chosen)
   
 2. Run `action_matrices.py`
+
+
+#### Input Attribution Maps
+
+**TODO**
   
 
 ### Pretraining an Encoder
