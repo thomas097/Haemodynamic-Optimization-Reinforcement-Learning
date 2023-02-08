@@ -140,6 +140,28 @@ py -3 pretrain_baselines.py --dataset <dataset> --task <task> --out_dims <out_di
 - `--batch_size`: Number of histories sampled in each batch (default: `32`).
 
 
-### Optimizing a Treatment Policy
+### Optimizing a Treatment Policy on MIMIC-III / AmsterdamUMCdb
 
-In `experiments/train_dqn_pretrained.py` and set paths to training and validation datasets of choice, i.e. the `train.csv` and `valid.csv` from AmsterdamUMCdb or MIMIC-III, and set `behavior_policy_file` to the behavior policy estimated for this dataset. Set `encoder` path to location of pretrained encoder and run script.
+Separate scripts are used to optimize the pretrained encoders and baselines:
+
+To train a value network (policy) on top of a pretrained encoder (e.g. CKCNN), run:
+```
+py -3 train_dqn_pretrained.py --dataset <dataset> --model <model> --out_dims <out_dims> --alpha <alpha> --gamma <gamma> --tau <tau> --episodes <episodes> --eval_after <eval_after> --freeze_encoder <freeze_encoder> --replay_alpha <replay_alpha> --replay_beta <replay_beta> --batch_size <batch_size>
+```
+```
+py -3 train_dqn_baselines.py --dataset <dataset> --baseline <baseline> --out_dims <out_dims> --alpha <alpha> --gamma <gamma> --tau <tau> --episodes <episodes> --eval_after <eval_after> --freeze_encoder <freeze_encoder> --replay_alpha <replay_alpha> --replay_beta <replay_beta> --batch_size <batch_size>
+```
+Using the following arguments:
+
+- `--dataset`: which dataset to use to train encoder (`mimic-iii|amsterdam-umc-db`).
+- `--model`: which pretrained encoder to use (e.g.\ `transformer_mt` when a transformer was trained using the MT pretraining objective).
+- `--baseline`: when no pretrained encoder is used, which baseline state space to employ instead (`last_state|concat-2|concat-3|autoencoder|tcn|lstm|gru`). **Note:** In case LSTM, GRU or TCN is selected, no pretraining is applied; therefore, the models are trained __from scratch__! 
+- `--out_dims`: Output dimensionality of the encoder's state (default: `96`).
+- `--alpha`: Learning rate of main value network (default: `1e-4`).
+- `--gamma`: Discount factor (default: `0.95`).
+- `--tau`: Learning rate of target network (default: `1e-4`).
+- `--episodes`: Number of training episodes (default: `200000`).
+- `--eval_after`: After how many episodes to call an evaluation callback for an intermittant evaluation with OPE (shown on screen) (default: `5000`).
+- `--freeze_encoder`: If encoder has been pretrained, whether to continue fine-tuning (`False`) or freeze its weights (`True`) (default: `False`).
+- `--replay_alpha/beta`: Parameters of the prioritized experience replay buffer (default: `replay_alpha=0.6` and `replay_beta=0.9`). For details, see [PER paper](https://arxiv.org/abs/1511.05952) on Arxiv.
+- `--batch_size`: Number of transitions sampled for each update (default: `32`).
