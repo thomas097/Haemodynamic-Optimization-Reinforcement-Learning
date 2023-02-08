@@ -107,7 +107,7 @@ py -3 action_matrices.py --dataset <dataset> --models <models> --partition <part
 ```
   
 - `--dataset`: which dataset to use to evaluate policy (`mimic-iii|amsterdam-umc-db`).
-- `--models`: which encoder-policy pairs to evaluate (`last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer`). You may fill in multiple policies, e.g. `-- models last_state transformer ckcnn`
+- `--models`: which encoder-policy pairs to evaluate (`last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer`). You may fill in multiple policies, e.g. `--models last_state transformer ckcnn`
 - `--partition`: which partition of the dataset to use for evaluation (`valid|test`).
 
 
