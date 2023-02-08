@@ -165,6 +165,8 @@ if __name__ == '__main__':
     parser.add_argument('-d', "--dataset", type=str, default='amsterdam-umc-db')
     parser.add_argument('-m', "--model", type=str, default='last_state')
     parser.add_argument('-p', "--partition", type=str, default='valid')
+    parser.add_argument('-n', "--num_histories", type=int, default=500)
+    parser.add_argument('-t', "--truncate", type=int, default=12)
     args = vars(parser.parse_args())
     print('Running with args:', args)
 
@@ -183,10 +185,10 @@ if __name__ == '__main__':
     random.seed(123)
 
     # Augment model with mapping from discrete actions to vasopressor and IV doses
-    # to_linear_dose = ToLinearDose(ivs=np.array([0, 13.005, 75.885, 151.9, 467.238]) / 500, # median dose of each bin
-    #                               vps=np.array([0, 0.045, 0.160, 0.342, 0.670]))
-    to_linear_dose = ToLinearDose(ivs=np.array([0, .25, .5, .75, 1.0]),  # median dose of each bin
-                                  vps=np.array([0, .25, .5, .75, 1.0]))
+    to_linear_dose = ToLinearDose(ivs=np.array([0, 13.005, 75.885, 151.9, 467.238]) / 500, # median dose of each bin
+                                  vps=np.array([0, 0.045, 0.160, 0.342, 0.670]))
+    # to_linear_dose = ToLinearDose(ivs=np.array([0, .25, .5, .75, 1.0]),  # median dose of each bin
+    #                               vps=np.array([0, .25, .5, .75, 1.0]))
     model = torch.nn.Sequential(model, to_linear_dose)
 
     # To compute gradients w.r.t. each treatment separately
@@ -196,15 +198,15 @@ if __name__ == '__main__':
     attr_maps_iv = []
     attr_maps_vp = []
 
-    for i in tqdm(range(N)):
+    for i in tqdm(range(args['num_histories'])):
 
         # Gather episodes of length 8 (truncate if longer)
         episode = []
-        while len(episode) < 12:
+        while len(episode) < args['truncate']:
             # Sample episode from dataset
             episode_id = random.choice(data.episode.unique())
             episode = data[data.episode == episode_id].filter(regex='x\d+').values  # only x* columns!
-            episode = torch.tensor(episode[-12:]).float()
+            episode = torch.tensor(episode[-args['truncate']:]).float()
 
         # Compute attribution map!
         attr_maps_iv.append(ig_iv(episode, model))

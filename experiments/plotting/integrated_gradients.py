@@ -249,7 +249,7 @@ if __name__ == '__main__':
 
         # Gather episodes of length 8 (truncate if longer)
         episode = []
-        while len(episode) < 12:
+        while len(episode) < args['truncate']:
             # Sample episode from dataset
             episode_id = random.choice(data.episode.unique())
             episode = data[data.episode == episode_id].filter(regex='x\d+').values  # only x* columns!
