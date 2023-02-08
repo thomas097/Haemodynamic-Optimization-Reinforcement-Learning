@@ -1,5 +1,14 @@
 import os
+
+# to allow running from terminal without pyCharm :(
+import sys
+sys.path.append('../../models/q_learning')
+sys.path.append('../../models/attention/nn')
+sys.path.append('../../models/ckconv/nn')
+sys.path.append('../../models')
+
 import torch
+import argparse
 import random
 import pickle
 import numpy as np
@@ -104,19 +113,22 @@ def plot_action_matrices(matrices, labels):
 
 
 if __name__ == '__main__':
-    dataset = load_csv('../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/test.csv')
-    bin_file = load_pickle('../../preprocessing/datasets/amsterdam-umc-db_v3/aggregated_full_cohort_2h/action_to_vaso_fluid_bins.pkl')
+    parser = argparse.ArgumentParser(description='This code generates action matrices for all models')
+    parser.add_argument('-d', "--dataset", type=str, default='amsterdam-umc-db')
+    parser.add_argument('-m', '--models', nargs='+', default=['last_state', 'transformer', 'ckcnn'])
+    parser.add_argument('-p', "--partition", type=str, default='test')
+    args = vars(parser.parse_args())
+    print('Running with args:', args)
 
-    dataset_label = 'amsterdam-umc-db'
-    models = ['last_state', 'transformer', 'ckcnn']
-    model_labels = ['Physician', 'Handcrafted State', 'Transformer + MT', 'CKCNN + MT']
+    dataset = load_csv('../../preprocessing/datasets/%s/aggregated_full_cohort_2h/%s.csv' % (args['dataset'], args['partition']))
+    bin_file = load_pickle('../../preprocessing/datasets/%s/aggregated_full_cohort_2h/action_to_vaso_fluid_bins.pkl' % args['dataset'])
 
     # get action matrices of physician and models
     action_matrices = [matrix_from_actions(dataset.action, bin_file=bin_file)]
 
-    for model in models:
+    for model in args['models']:
         actions = predict_actions(
-            model=load_pretrained('../results/action_matrices/%s_%s.pt' % (dataset_label, model)),
+            model=load_pretrained('../results/action_matrices/%s_%s.pt' % (args['dataset'], model)),
             dataset=dataset,
             n_episodes=-1,
         )
@@ -125,5 +137,5 @@ if __name__ == '__main__':
     # plot!
     plot_action_matrices(
         matrices=action_matrices,
-        labels=model_labels
+        labels=['Physician'] + [s.replace('_', ' ').title() for s in args['models']]
     )

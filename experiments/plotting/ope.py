@@ -159,7 +159,6 @@ if __name__ == '__main__':
     parser.add_argument('-m', "--model", type=str, default='transformer')
     parser.add_argument('-p', "--partition", type=str, default='test')
     args = vars(parser.parse_args())
-
     print('Running with args:', args)
 
     dataset_file = '../../preprocessing/datasets/%s/aggregated_full_cohort_2h/%s.csv' % (args['dataset'], args['partition'])
