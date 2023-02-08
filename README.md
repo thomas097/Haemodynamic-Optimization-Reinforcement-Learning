@@ -116,7 +116,7 @@ py -3 action_matrices.py --dataset <dataset> --models <models> --partition <part
 **TODO**
   
 
-### Pretraining an Encoder
+### (Pre)Training a State Encoder
 
 To simplify the training of the encoders (CKCNN, Transformer and LSTM baseline), separate scripts are used:
 
