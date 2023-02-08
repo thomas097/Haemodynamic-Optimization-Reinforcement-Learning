@@ -54,7 +54,7 @@ if __name__ == '__main__':
     # Train!
     fit_multi_task(
         task=args['task'],
-        experiment='results/%s/transformer_%s_pretraining' % (args['dataset'], args['task']),
+        experiment='results/%s/lstm_%s_pretraining' % (args['dataset'], args['task']),
         encoder=lstm,
         in_channels=in_channels,
         out_channels=out_channels,

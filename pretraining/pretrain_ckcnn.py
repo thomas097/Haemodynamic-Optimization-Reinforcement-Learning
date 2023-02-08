@@ -51,7 +51,7 @@ if __name__ == '__main__':
     # Train!
     fit_multi_task(
         task=args['task'],
-        experiment='results/ckcnn_%s_pretraining' % args['task'],
+        experiment='results/%s/ckcnn_%s_pretraining' % (args['dataset'], args['task']),
         encoder=ckcnn,
         in_channels=in_channels,
         out_channels=out_channels,
