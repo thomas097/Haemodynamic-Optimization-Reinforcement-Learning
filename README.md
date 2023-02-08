@@ -118,14 +118,19 @@ py -3 action_matrices.py --dataset <dataset> --models <models> --partition <part
 
 ### (Pre)Training a State Encoder
 
-To simplify the training of the encoders (CKCNN, Transformer and LSTM baseline), separate scripts are used:
+To simplify the training of the encoders (CKCNN, Transformer and LSTM baseline), separate scripts are used.
 
+To train a Transformer encoder (with the parameters as used in the report), run:
 ```
 py -3 pretrain_transformer.py --dataset <dataset> --task <task> --out_dims <out_dims> --lrate <lrate> --epochs <epochs> --batches_per_epoch <batches_per_epoch> --warmup <warmup> --batch_size <batch_size>
 ```
+
+To train a CKCNN encoder, run:
 ```
 py -3 pretrain_ckcnn.py --dataset <dataset> --task <task> --out_dims <out_dims> --lrate <lrate> --epochs <epochs> --batches_per_epoch <batches_per_epoch> --warmup <warmup> --batch_size <batch_size>
 ```
+
+To train an LSTM encoder baseline (choose `--task mt` for same results), run:
 ```
 py -3 pretrain_baselines.py --dataset <dataset> --task <task> --out_dims <out_dims> --lrate <lrate> --epochs <epochs> --batches_per_epoch <batches_per_epoch> --warmup <warmup> --batch_size <batch_size>
 ```
@@ -148,6 +153,8 @@ To train a value network (policy) on top of a pretrained encoder (e.g. CKCNN), r
 ```
 py -3 train_dqn_pretrained.py --dataset <dataset> --model <model> --out_dims <out_dims> --alpha <alpha> --gamma <gamma> --tau <tau> --episodes <episodes> --eval_after <eval_after> --freeze_encoder <freeze_encoder> --replay_alpha <replay_alpha> --replay_beta <replay_beta> --batch_size <batch_size>
 ```
+
+To train a policy using a baseline state space (e.g. handcrafted state space), run:
 ```
 py -3 train_dqn_baselines.py --dataset <dataset> --baseline <baseline> --out_dims <out_dims> --alpha <alpha> --gamma <gamma> --tau <tau> --episodes <episodes> --eval_after <eval_after> --freeze_encoder <freeze_encoder> --replay_alpha <replay_alpha> --replay_beta <replay_beta> --batch_size <batch_size>
 ```
