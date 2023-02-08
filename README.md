@@ -103,11 +103,11 @@ Note: `last_state` denotes the _Handcrafted State_ in the report
 #### Action Matrices
 
 ```
-py -3 action_matrices.py --dataset <DATASET> --model <MODEL> --partition <PARTITION>
+py -3 action_matrices.py --dataset <DATASET> --models <MODELS> --partition <PARTITION>
 ```
   
 - DATASET = `mimic-iii|amsterdam-umc-db`
-- MODEL = `last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer|physician`
+- MODELS = any combination of `last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer`, e.g. '--models transformer ckcnn'
 - PARTITION = `valid|test`
 
 
