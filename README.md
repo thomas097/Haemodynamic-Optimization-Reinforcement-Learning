@@ -4,23 +4,24 @@ This repository contains the source code accompanying the MSc thesis <i>"Reinfor
 
 <img src="https://github.com/thomas097/Haemodynamic-Optimization-Reinforcement-Learning/blob/main/images/abstract.PNG?raw=true"  width="50%" height="50%">
 
-<b>Keywords:</b> hemodynamic support $\cdot$ reinforcement learning $\cdot$ state representation learning $\cdot$ continuous kernel convolutional networks $\cdot$ transformers.
-
 ## Dependencies
 A Python installation 3.8+ with the following libraries installed:
-- numpy
-- matplotlib
-- pandas
-- torch
-- tqdm
-- seaborn
+- matplotlib == 3.6.0
+- matplotlib-inline == 0.1.6
+- numpy == 1.23.3
+- pandas == 1.5.0
+- scikit-learn == 1.1.2
+- scipy == 1.9.2
+- seaborn == 0.12.0
+- sklearn == 0.0
+- torch == 1.13.1
+- tqdm == 4.64.1
 
 #### Installation
-0. (optional) we recommended to create a fresh virtual environment to ensure no clashing of library versions:
+0. (optional) we recommended to create a fresh virtual environment to ensure no conflicts between library versions:
     - With python 3.8+ installed, open a command prompt
-    - Navigate to repository, e.g. `cd C:/Users/<USER>/Desktop/<REPOSITORY_NAME>`
-    - Call `python -m venv thesis_venv`
-    - Call `thesis_venv\Scripts\activate` to activate virtual environment 
+    - Navigate to repository by `cd <PATH_TO_REPOSITORY>`
+    - Call `python -m venv thesis_venv`, followed by `thesis_venv\Scripts\activate` to activate virtual environment 
     
 1. Install libraries:
     - `pip install -r requirements.txt`
@@ -33,26 +34,64 @@ The repository is organized as follows:
 
 - `/data`: this folder contains all *data extraction* source code used to extract raw unprocessed patient data from MIMIC-III and the AmsterdamUMCdb part of the input (i.e. observation- and action-space), including vitals, lab results, demographics, treatment parameters, discharge information, etc.
 
-- `preprocessing`: Code used to convert the raw measrurements and treatment parameters extracted from MIMIC-III and the AmsterdamUMCdb into regularly-sampled patient trajectories with 2h time steps.
+- `preprocessing`: Jupyter notebooks used to process and convert the raw measrurements and treatment parameters extracted from MIMIC-III and the AmsterdamUMCdb into regularly-sampled patient trajectories with 2h time steps.
 
-- `model`: Implementations of the CKCNN and Transformer encoders and a range of baseline state space encoders (e.g. last observation, last K observatons, LSTM, etc.). For details, see the report. 
+- `model`: Implementations of the CKCNN and Transformer encoders and a range of baseline state space encoders (e.g. last observation, last K observatons, LSTM, etc.). This folder also contains the implementation of Dueling Double Deep Q-Learning (D3QN), used to train treatment policies. For details, see the report. 
 
-- `pretraining`: Implementation and training routines of the autoencoding, forward dynamics modeling, behavior cloning and combined 'multi-task' pretraining tasks 
+- `pretraining`: Implementation and training routines of the autoencoding, forward dynamics modeling, behavior cloning and combined 'multi-task' pretraining tasks to optimize the encoders for state extraction.
 
-- `experiments`: Training routines to learn treatment policies on MIMIC-III or the AmsterdamUMCdb with a (pre)trained encoder. Also, contains evaluation routines, e.g. to evaluate with OPE (see instructions below).
+- `experiments`: Training routines to optimize treatment policies on MIMIC-III or the AmsterdamUMCdb with a (pre)trained encoder. Also, contains evaluation routines, e.g. to evaluate the reasulting with OPE (see instructions below).
 
-- `ope`: Definitions of the OPE estimators used to evaluate the learnt policies
+- `ope`: Definitions of the OPE estimators used to evaluate the learnt policies and routines used to estimate the physician's behavior policy
 
 ## Instructions
 
 ### Reproducing the Reported Results
-To reproduce the results reported in the thesis, follow the following steps:
+To reproduce the results reported in the thesis, you may follow the instructions below:
 
 #### Preliminaries
 1. Download models, preprocessed datasets and estimated behavior policies from **ADD LINK TO DRIVE!** 
-    - Unpack models in `experiments/results`. You should have a folder structure as `experiments/results/<DATASET_NAME>/<EXPERIMENT_NAME>`
-    - Unpack datasets in `preprocessing/datasets`
-    - Unpack behavior policies for MIMIC-III/AmsterdamUMCdb in `ope/physician_policy`  
+    - Unpack `models.zip` in `experiments/results`. You should have a folder structure as `experiments/results/<DATASET_NAME>/<EXPERIMENT_NAME>`
+    - Unpack `datasets.zip` in `preprocessing/datasets`
+    - Unpack `behavior_policies.zip` in `ope/physician_policy`  
+    
+You should obtain a file structure as follows:
+
+    .
+    ├── ...
+    ├── experiments
+    │   └── results
+    │       └── amsterdam-umc-db
+    |       │   ├── ...
+    │       │   ├── concat-2_experiment_00000
+    │       │   │   └── <DATA_FILES>
+    │       │   ├── transformer_experiment_00000
+    │       │   │   └── <DATA_FILES>
+    │       │   └── ckcnn_experiment_00000
+    │       │       └── <DATA_FILES>
+    │       └── mimic-iii
+    |           ├── ...
+    │           ├── concat-2_experiment_00000
+    │           │   └── <DATA_FILES>
+    │           ├── transformer_experiment_00000
+    │           │   └── <DATA_FILES>
+    │           └── ckcnn_experiment_00000
+    │               └── <DATA_FILES>
+    ├── preprocessing
+    │   └── datasets
+    │       └── amsterdam-umc-db
+    │       │   └── aggregated_full_cohort_2h
+    │       │       └── <DATA_FILES>
+    │       └── mimic-iii
+    │           └── aggregated_full_cohort_2h
+    │               └── <DATA_FILES>
+    ├── ope
+    │   └── physician_policy
+    │       └── amsterdam-umc-db_aggregated_full_cohort_2h_mlp
+    │       │   └── <DATA_FILES>
+    │       └── mimic-iii_aggregated_full_cohort_2h_mlp
+    │           └── <DATA_FILES>
+    └── ...
 
 #### OPE Evaluation Results
   
