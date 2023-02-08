@@ -112,12 +112,32 @@ py -3 action_matrices.py --dataset <dataset> --models <models> --partition <part
 
 #### Input Attribution Maps
 
-**TODO**
-  
+To recreate the attribution/contribution maps, you can choose between the Integrated Gradients method (presented in the thesis but slow to complete) or a non-integrated, yet still gradients method (which is faster and 99% the same). Navigate to `experiments/plotting` and follow the instructions below:
+
+For Integrated Gradient, run:
+```
+py -3 integrated_gradients.py --dataset <dataset> --model <model> --partition <partition> --num_histories <num_histories> --truncate <truncate> --num_baselines <num_baselines> --num_integration_steps <num_integration_steps>
+```
+
+For the simpler non-integrated Gradients method, run:
+```
+py -3 gradients.py --dataset <dataset> --model <model> --partition <partition> --num_histories <num_histories> --truncate <truncate> 
+```
+Using the following arguments:
+
+- `--dataset`: which dataset to use to run encoder-value network over (`mimic-iii|amsterdam-umc-db`).
+- `--model`: which encoder-policy to evaluate (e.g.\ `transformer` when a transformer was trained using the MT pretraining objective).
+- `--partition`: from which partition to sample histories (`valid|test|train`)
+- `--num_histories`: how many histories to use to construct the __mean__ contribution map. We recommend selecting a value above 400. (Default: `500`)
+- `--truncate`: Lengths of histories to sample.
+- `--num_baselines`: The number of normal gaussian baseline images to sample. Only used in Integrated Gradients (default: 32).
+- `--num_integration_steps`: Number of integratuon steps to use between history and baseline(s). Only used in Integrated Gradients (default: 64). 
+
+On the hardware used (Nvidia GeForce GTX 1080 TI), a single run of Integrated Gradients with default parameters took ~20 minutes; Non-integrated gradients took ~30s (but deviates a little bit from the results presented in the report (recommend using `--num_histories 1000`)).
 
 ### (Pre)Training a State Encoder
 
-To simplify the training of the encoders (CKCNN, Transformer and LSTM baseline), separate scripts are used.
+To simplify the training of the encoders (CKCNN, Transformer and LSTM baseline), separate scripts are used. First, navigate to `pretraining/` and follow the instructions below:
 
 To train a Transformer encoder (with the parameters as used in the report), run:
 ```
@@ -146,7 +166,7 @@ py -3 pretrain_baselines.py --dataset <dataset> --task <task> --out_dims <out_di
 
 ### Optimizing a Treatment Policy on MIMIC-III / AmsterdamUMCdb
 
-Separate scripts are used to optimize the pretrained encoders and baselines:
+Separate scripts are used to optimize the pretrained encoders and baselines. Navigate to `experiments/` and follow the instructions below:
 
 To train a value network (policy) on top of a pretrained encoder (e.g. CKCNN), run:
 ```
