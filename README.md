@@ -30,19 +30,19 @@ A Python installation 3.8+ with the following libraries installed:
 
 The repository is organized as follows:
 
-- `exploratory_analysis`: Exploratory Data Analysis (EDA) of the MIMIC-III and AmsterdamUMCdb intensive care databases
+- `exploratory_analysis/`: Exploratory Data Analysis (EDA) of the MIMIC-III and AmsterdamUMCdb intensive care databases
 
-- `/data`: this folder contains all *data extraction* source code used to extract raw unprocessed patient data from MIMIC-III and the AmsterdamUMCdb part of the input (i.e. observation- and action-space), including vitals, lab results, demographics, treatment parameters, discharge information, etc.
+- `data/`: this folder contains all *data extraction* source code used to extract raw unprocessed patient data from MIMIC-III and the AmsterdamUMCdb part of the input (i.e. observation- and action-space), including vitals, lab results, demographics, treatment parameters, discharge information, etc.
 
-- `preprocessing`: Jupyter notebooks used to process and convert the raw measrurements and treatment parameters extracted from MIMIC-III and the AmsterdamUMCdb into regularly-sampled patient trajectories with 2h time steps.
+- `preprocessing/`: Jupyter notebooks used to process and convert the raw measrurements and treatment parameters extracted from MIMIC-III and the AmsterdamUMCdb into regularly-sampled patient trajectories with 2h time steps.
 
-- `model`: Implementations of the CKCNN and Transformer encoders and a range of baseline state space encoders (e.g. last observation, last K observatons, LSTM, etc.). This folder also contains the implementation of Dueling Double Deep Q-Learning (D3QN), used to train treatment policies. For details, see the report. 
+- `model/`: Implementations of the CKCNN and Transformer encoders and a range of baseline state space encoders (e.g. last observation, last K observatons, LSTM, etc.). This folder also contains the implementation of Dueling Double Deep Q-Learning (D3QN), used to train treatment policies. For details, see the report. 
 
-- `pretraining`: Implementation and training routines of the autoencoding, forward dynamics modeling, behavior cloning and the combined 'multi-task' pretraining tasks to (pre)train the encoders for state extraction.
+- `pretraining/`: Implementation and training routines of the autoencoding, forward dynamics modeling, behavior cloning and the combined 'multi-task' pretraining tasks to (pre)train the encoders for state extraction.
 
-- `experiments`: Training routines to optimize treatment policies on MIMIC-III or the AmsterdamUMCdb with a (pre)trained encoder. Also, contains evaluation routines to evaluate the resulting treatment policies with OPE and generate action matrices (see instructions below).
+- `experiments/`: Training routines to optimize treatment policies on MIMIC-III or the AmsterdamUMCdb with a (pre)trained encoder. Also, contains evaluation routines to evaluate the resulting treatment policies with OPE and generate action matrices (see instructions below).
 
-- `ope`: Definitions of the Off-policy policy evaluation estimators (PHWIS, PHWDR and FQE) used to evaluate the learnt policies, and routines used to estimate the physician's behavior policy.
+- `ope/`: Definitions of the Off-policy policy evaluation estimators (PHWIS, PHWDR and FQE) used to evaluate the learnt policies, and routines used to estimate the physician's behavior policy.
 
 ## Instructions
 
@@ -91,24 +91,24 @@ First, download and unpack zip files of models, preprocessed datasets and estima
 #### Off-policy Policy Evaluation (OPE)
 
 ```
-py -3 ope.py --dataset <DATASET> --model <MODEL> --partition <PARTITION>
+py -3 ope.py --dataset <dataset> --model <model> --partition <partition>
 ```
   
-- DATASET = `mimic-iii|amsterdam-umc-db`
-- MODEL = `last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer|physician`
-- PARTITION = `valid|test`
+- `--dataset`: which dataset to use to evaluate policy (`mimic-iii|amsterdam-umc-db`). As policies are traint on the training partition of the same dataset, the correct policy network is chosen automatically.
+- `--model`: which encoder-policy pair to evaluate (`last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer|physician`)
+- `--partition`: which partition of the dataset to use for evaluation (`valid|test`).
 
-Note: `last_state` denotes the _Handcrafted State_ in the report
+Note: `last_state` refers to the _Handcrafted State_ in the report
 
 #### Action Matrices
 
 ```
-py -3 action_matrices.py --dataset <DATASET> --models <MODELS> --partition <PARTITION>
+py -3 action_matrices.py --dataset <dataset> --models <models> --partition <partition>
 ```
   
-- DATASET = `mimic-iii|amsterdam-umc-db`
-- MODELS = any combination of `last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer`, e.g. '--models transformer ckcnn'
-- PARTITION = `valid|test`
+- `--dataset`: which dataset to use to evaluate policy (`mimic-iii|amsterdam-umc-db`).
+- `--models`: which encoder-policy pairs to evaluate (`last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer`). You may fill in multiple policies, e.g. `-- models last_state transformer ckcnn`
+- `--partition`: which partition of the dataset to use for evaluation (`valid|test`).
 
 
 #### Input Attribution Maps
