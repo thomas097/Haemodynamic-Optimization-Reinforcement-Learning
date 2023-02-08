@@ -1,4 +1,14 @@
 import os
+
+# to allow running from terminal without pyCharm :(
+import sys
+sys.path.append('../../ope')
+sys.path.append('../../models/q_learning')
+sys.path.append('../../models/attention/nn')
+sys.path.append('../../models/ckconv/nn')
+sys.path.append('../../models')
+
+import argparse
 import random
 import torch
 import numpy as np
@@ -66,7 +76,7 @@ def conf_interval(scores, conf_level):
 
 
 def evaluate_policy(policy_file, dataset_file, behavior_policy_file, batch_size=256, lrate=1e-2, iters=15000,
-                    gamma=1.0, n_bootstraps=100, fraction=0.8, conf_level=0.95, seed=42):
+                    gamma=0.95, n_bootstraps=1000, fraction=0.75, conf_level=0.95, seed=42):
     """ Computes WIS, FQE and WDR estimates of policy performance
     :param policy_file:           File pointing to a trained policy network. If policy_file == behavior_policy_file,
                                   then the estimated behavior policy is evaluated.
@@ -144,21 +154,32 @@ def save_tail(path, fname, maxlen=256):
 
 
 if __name__ == '__main__':
-    dataset_file = '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/valid.csv'
-    behavior_policy_file = '../../ope/physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_mlp/valid_behavior_policy.csv'
-    model = '../results/amsterdam-umc-db/transformer_experiment_00000/model.pt'
+    parser = argparse.ArgumentParser(description='This code evaluates a policy using OPE giving a score for PHWIS, PHWDR and FQE')
+    parser.add_argument('-d', "--dataset", type=str, default='amsterdam-umc-db')
+    parser.add_argument('-m', "--model", type=str, default='transformer')
+    parser.add_argument('-p', "--partition", type=str, default='test')
+    args = vars(parser.parse_args())
 
-    # Truncate episodes to fix degeneracy problem
-    save_tail(dataset_file, 'valid_tmp.csv', maxlen=32)
-    save_tail(behavior_policy_file, 'behavior_policy_tmp.csv', maxlen=32)
+    print('Running with args:', args)
+
+    dataset_file = '../../preprocessing/datasets/%s/aggregated_full_cohort_2h/%s.csv' % (args['dataset'], args['partition'])
+    behavior_policy_file = '../../ope/physician_policy/%s_aggregated_full_cohort_2h_mlp/%s_behavior_policy.csv' % (args['dataset'], args['partition'])
+
+    save_tail(dataset_file, 'eval_data_tmp.csv', maxlen=32)
+    save_tail(behavior_policy_file, 'behavior_policy_data_tmp.csv', maxlen=32)
+
+    if args['model'] == 'physician':
+        model = 'behavior_policy_data_tmp.csv'
+    else:
+        model = '../results/%s/%s_experiment_00000/model.pt' % (args['dataset'], args['model'])
 
     evaluate_policy(
         policy_file=model,
-        dataset_file='valid_tmp.csv',
-        behavior_policy_file='behavior_policy_tmp.csv',
+        dataset_file='eval_data_tmp.csv',
+        behavior_policy_file='behavior_policy_data_tmp.csv',
         lrate=0.05,
         iters=1000,
         gamma=0.95,
         n_bootstraps=1000,
-        fraction=0.75,
+        conf_level=0.95,
     )
