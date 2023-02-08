@@ -118,10 +118,27 @@ py -3 action_matrices.py --dataset <dataset> --models <models> --partition <part
 
 ### Pretraining an Encoder
 
-A different script was used to train each of the encoders:
+To simplify the training of the encoders (CKCNN, Transformer and LSTM baseline), separate scripts are used:
 
-**Transformer**: In `pretraining/pretrain_transformer.py` set `task` to pretraining objective of choice (either of `ae|fp|bc|mt`) and run script.<br>
-**CKCNN**: In `pretraining/pretrain_ckcnn.py` set `task` to pretraining objective of choice (either of `ae|fp|bc|mt`) and run script.
+```
+py -3 pretrain_transformer.py --dataset <dataset> --task <task> --out_dims <out_dims> --lrate <lrate> --epochs <epochs> --batches_per_epoch <batches_per_epoch> --warmup <warmup> --batch_size <batch_size>
+```
+```
+py -3 pretrain_ckcnn.py --dataset <dataset> --task <task> --out_dims <out_dims> --lrate <lrate> --epochs <epochs> --batches_per_epoch <batches_per_epoch> --warmup <warmup> --batch_size <batch_size>
+```
+```
+py -3 pretrain_baselines.py --dataset <dataset> --task <task> --out_dims <out_dims> --lrate <lrate> --epochs <epochs> --batches_per_epoch <batches_per_epoch> --warmup <warmup> --batch_size <batch_size>
+```
+
+- `--dataset`: which dataset to use to train encoder (`mimic-iii|amsterdam-umc-db`).
+- `--task`: which learning objective to use (`fp|bc|ae|mt`).
+- `--out_dims`: Output dimensionality of the state (default: `96`).
+- `--lrate`: Learning rate (default: `5e-4`).
+- `--epochs`: Number of training iterations (default: `200`).
+- `--batches_per_epoch`: Number of batches of histories to sample that together form one interation (default: `500`).
+- `--warmup`: Number of linear warm-up steps to gradually increase learning rate (default: `50`). This parameter is particularly importantant for the Transformer as decreasing this number below 40 steps was found to decrease likelihood of convergence.
+- `--batch_size`: Number of histories sampled in each batch (default: `32`).
+
 
 ### Optimizing a Treatment Policy
 
