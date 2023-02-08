@@ -38,11 +38,11 @@ The repository is organized as follows:
 
 - `model`: Implementations of the CKCNN and Transformer encoders and a range of baseline state space encoders (e.g. last observation, last K observatons, LSTM, etc.). This folder also contains the implementation of Dueling Double Deep Q-Learning (D3QN), used to train treatment policies. For details, see the report. 
 
-- `pretraining`: Implementation and training routines of the autoencoding, forward dynamics modeling, behavior cloning and combined 'multi-task' pretraining tasks to optimize the encoders for state extraction.
+- `pretraining`: Implementation and training routines of the autoencoding, forward dynamics modeling, behavior cloning and the combined 'multi-task' pretraining tasks to (pre)train the encoders for state extraction.
 
-- `experiments`: Training routines to optimize treatment policies on MIMIC-III or the AmsterdamUMCdb with a (pre)trained encoder. Also, contains evaluation routines, e.g. to evaluate the reasulting with OPE (see instructions below).
+- `experiments`: Training routines to optimize treatment policies on MIMIC-III or the AmsterdamUMCdb with a (pre)trained encoder. Also, contains evaluation routines to evaluate the resulting treatment policies with OPE and generate action matrices (see instructions below).
 
-- `ope`: Definitions of the OPE estimators used to evaluate the learnt policies and routines used to estimate the physician's behavior policy
+- `ope`: Definitions of the Off-policy policy evaluation estimators (PHWIS, PHWDR and FQE) used to evaluate the learnt policies, and routines used to estimate the physician's behavior policy.
 
 ## Instructions
 
@@ -50,12 +50,7 @@ The repository is organized as follows:
 To reproduce the results reported in the thesis, you may follow the instructions below:
 
 #### Preliminaries
-1. Download models, preprocessed datasets and estimated behavior policies from **ADD LINK TO DRIVE!** 
-    - Unpack `models.zip` in `experiments/results`. You should have a folder structure as `experiments/results/<DATASET_NAME>/<EXPERIMENT_NAME>`
-    - Unpack `datasets.zip` in `preprocessing/datasets`
-    - Unpack `behavior_policies.zip` in `ope/physician_policy`  
-    
-You should obtain a file structure as follows:
+First, download and unpack zip files of models, preprocessed datasets and estimated behavior policies from **ADD LINK TO DRIVE!** (**TODO: check whether this is legally allowed**). You should obtain a file structure as follows:
 
     .
     ├── ...
@@ -93,25 +88,27 @@ You should obtain a file structure as follows:
     │           └── <DATA_FILES>
     └── ...
 
-#### OPE Evaluation Results
+#### Off-policy Policy Evaluation (OPE)
+
+```
+py -3 ope.py --dataset <DATASET> --model <MODEL> --partition <PARTITION>
+```
   
-1. Navigate to `experiments/plotting/ope.py`:
-    - Set `model` path to the location of the model to be evaluated, e.g. `../results/amsterdam-umc-db/transformer_experiment_00000/model.pt`
-    - Set `dataset_file ` path to the location of the dataset to evaluate model on, e.g. '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/test.csv'
-    - Set `behavior_policy_file ` path to location of pre-estimated behavior policy, e.g. '../../ope/physician_policy/amsterdam-umc-db_aggregated_full_cohort_2h_mlp/test_behavior_policy.csv'
-  
-2. Run `ope.py`
-    - This might take a while as an FQE model is fit onto the action distribution of the policy network
-  
-For physician's policy OPE results, replace `model` by filename of behavior policy file, i.e. `model = 'behavior_policy_tmp.csv'`
+- DATASET = `mimic-iii|amsterdam-umc-db`
+- MODEL = `last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer|physician`
+- PARTITION = `valid|test`
+
+Note: `last_state` denotes the _Handcrafted State_ in the report
 
 #### Action Matrices
 
-1. Navigate to `experiments/plotting/action_matrices.py`
-    - Set `dataset_file ` path to the location of the dataset to evaluate model on, e.g. '../../preprocessing/datasets/amsterdam-umc-db/aggregated_full_cohort_2h/test.csv'
-    - Set `dataset_label` to `mimic-iii` or `amsterdam-umc-db` (depending on the dataset chosen)
+```
+py -3 action_matrices.py --dataset <DATASET> --model <MODEL> --partition <PARTITION>
+```
   
-2. Run `action_matrices.py`
+- DATASET = `mimic-iii|amsterdam-umc-db`
+- MODEL = `last_state|concat-2|concat-3|autoencoder|lstm_mt|ckcnn|transformer|physician`
+- PARTITION = `valid|test`
 
 
 #### Input Attribution Maps
