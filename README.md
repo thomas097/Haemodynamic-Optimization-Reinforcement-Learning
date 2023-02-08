@@ -49,7 +49,6 @@ The repository is organized as follows:
 ### Reproducing the Reported Results
 To reproduce the results reported in the thesis, you may follow the instructions below:
 
-#### Preliminaries
 First, download and unpack zip files of models, preprocessed datasets and estimated behavior policies from **ADD LINK TO DRIVE!** (**TODO: check whether this is legally allowed**). You should obtain a file structure as follows:
 
     .
